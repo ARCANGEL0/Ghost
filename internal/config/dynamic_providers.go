@@ -11,9 +11,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
+	freeProviders "github.com/swadhinbiswas/ghost/internal/config/providers"
+	"github.com/swadhinbiswas/ghost/internal/env"
 )
 
 // httpClient is reused across dynamic fetches.
@@ -235,36 +238,219 @@ func fetchDynamicProviders() []catwalk.Provider {
 // fetchFreshDynamicProviders fetches dynamic providers remotely. Each source is
 // best-effort: a failure is logged and that provider is simply omitted from the
 // fresh set (callers fall back to cache or embedded defaults).
-func fetchFreshDynamicProviders() []catwalk.Provider {
+func fetchFreshDynamicProviders(cfgs ...*Config) []catwalk.Provider {
+	var cfg *Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+	}
+
+	base := freeProviders.AllFreeProviders()
+	results := make(chan catwalk.Provider, len(base))
+	var wg sync.WaitGroup
+
+	for _, provider := range base {
+		provider := provider
+		if !hasLiveCatalog(string(provider.ID)) {
+			continue
+		}
+		if cfg != nil && cfg.Providers != nil {
+			if saved, ok := cfg.Providers.Get(string(provider.ID)); ok && saved.BaseURL != "" && provider.ID != "cloudflare" {
+				provider.APIEndpoint = saved.BaseURL
+			}
+		}
+		key := providerCatalogKey(cfg, provider)
+		if needsCatalogKey(string(provider.ID)) && key == "" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fresh, err := fetchProviderCatalog(provider, key, cfg)
+			if err != nil {
+				slog.Warn("Failed to refresh provider catalog", "provider", provider.ID, "error", err)
+				return
+			}
+			if len(fresh.Models) > 0 {
+				results <- fresh
+			}
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
 	var out []catwalk.Provider
-
-	// 1. OpenCode Zen – fetch first so we can use its model list to deduplicate OpenRouter.
-	ocModels, err := fetchOpenCodeModels()
-	if err != nil {
-		slog.Warn("Failed to fetch OpenCode Zen models, will use cache/fallback", "error", err)
+	for provider := range results {
+		out = append(out, provider)
 	}
-	if len(ocModels) > 0 {
-		largeModelID := pickOpenCodeModelID(ocModels, openCodeLargeModelPreferences)
-		smallModelID := pickOpenCodeSmallModelID(ocModels, largeModelID)
-		out = append(out, catwalk.Provider{
-			ID:                  "opencode",
-			Name:                "OpenCode Zen",
-			APIEndpoint:         "https://opencode.ai/zen/v1",
-			Type:                catwalk.TypeOpenAICompat,
-			DefaultLargeModelID: largeModelID,
-			DefaultSmallModelID: smallModelID,
-			Models:              ocModels,
-		})
-	}
-
-	// 2. Nvidia NIM – fetch the live model catalog from the remote JSON source.
-	if nim, err := fetchNvidiaNimProvider(); err != nil {
-		slog.Warn("Failed to fetch Nvidia NIM models, will use cache/fallback", "error", err)
-	} else {
-		out = append(out, nim)
-	}
-
 	return out
+}
+
+func hasLiveCatalog(id string) bool {
+	switch id {
+	case "opencode", "opencode-zen", "openrouter", "kilo", "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "aion", "huggingface", "llm7", "typhoon", "nous-portal", "ollama-local":
+		return true
+	default:
+		return false
+	}
+}
+
+func needsCatalogKey(id string) bool {
+	switch id {
+	case "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "huggingface", "llm7", "typhoon", "nous-portal":
+		return true
+	default:
+		return false
+	}
+}
+
+func providerCatalogKey(cfg *Config, provider catwalk.Provider) string {
+	key := provider.APIKey
+	if cfg != nil && cfg.Providers != nil {
+		if saved, ok := cfg.Providers.Get(string(provider.ID)); ok && saved.APIKey != "" {
+			key = saved.APIKey
+		}
+	}
+	if key == "" || key == "no-key-needed" {
+		return ""
+	}
+	value, err := NewShellVariableResolver(env.New()).ResolveValue(key)
+	if err != nil {
+		return ""
+	}
+	if value == "no-key-needed" {
+		return ""
+	}
+	return value
+}
+
+func fetchProviderCatalog(provider catwalk.Provider, key string, cfg *Config) (catwalk.Provider, error) {
+	id := string(provider.ID)
+	var models []catwalk.Model
+	var err error
+	switch id {
+	case "opencode", "opencode-zen":
+		models, err = fetchOpenCodeModels()
+	case "nvidia-nim":
+		return fetchNvidiaNimProviderWithKey(key)
+	case "googleai":
+		models, err = fetchGoogleModelCatalog(provider.APIEndpoint, key)
+	case "cloudflare":
+		account := ""
+		if cfg != nil && cfg.Providers != nil {
+			if saved, ok := cfg.Providers.Get(id); ok {
+				account = saved.ExtraParams["account_id"]
+			}
+		}
+		if account == "" {
+			account = os.Getenv("CLOUDFLARE_ACCOUNT_ID")
+		}
+		models, err = fetchCloudflareModelCatalog(account, key)
+	case "cohere":
+		models, err = fetchCohereModelCatalog(key)
+	case "amd-radeon":
+		models, err = fetchAmdModelCatalog(provider.APIEndpoint, key)
+	case "llm7":
+		models, err = fetchLLM7ModelCatalog(provider.APIEndpoint, key)
+	case "typhoon":
+		models, err = fetchTyphoonModelCatalog(provider.APIEndpoint, key)
+	case "nous-portal":
+		models, err = fetchFreeOpenAIModelCatalog(provider.APIEndpoint, key)
+	default:
+		models, err = fetchOpenAIModelCatalog(provider.APIEndpoint, catalogKeyFor(id, key))
+	}
+	if err != nil {
+		return catwalk.Provider{}, fmt.Errorf("%s: %w", id, err)
+	}
+
+	filtered := models[:0]
+	for _, model := range models {
+		switch id {
+		case "openrouter":
+			if !strings.HasSuffix(model.ID, ":free") {
+				continue
+			}
+		case "kilo":
+			if !strings.HasSuffix(model.ID, ":free") && model.ID != "kilo-auto/free" {
+				continue
+			}
+		case "opencode", "opencode-zen":
+			if !isOpenCodeFreeModel(model.ID) {
+				continue
+			}
+		case "googleai":
+			if !isGoogleFreeModel(model.ID) {
+				continue
+			}
+		}
+		filtered = append(filtered, model)
+	}
+	if id == "openrouter" {
+		found := false
+		for _, model := range filtered {
+			if model.ID == "openrouter/free" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			filtered = append(filtered, catwalk.Model{
+				ID:               "openrouter/free",
+				Name:             "OpenRouter Free Auto",
+				ContextWindow:    128_000,
+				DefaultMaxTokens: 8192,
+			})
+		}
+	}
+	if id == "kilo" {
+		found := false
+		for _, model := range filtered {
+			if model.ID == "kilo-auto/free" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			filtered = append(filtered, catwalk.Model{
+				ID:               "kilo-auto/free",
+				Name:             "Kilo Auto Free",
+				ContextWindow:    128_000,
+				DefaultMaxTokens: 8192,
+			})
+		}
+	}
+	if len(filtered) == 0 {
+		return catwalk.Provider{}, fmt.Errorf("catalog has no supported models")
+	}
+	if id == "opencode" || id == "opencode-zen" {
+		sortOpenCodeModels(filtered)
+	}
+	provider.Models = filtered
+	provider.DefaultLargeModelID = liveDefault(provider.DefaultLargeModelID, filtered)
+	provider.DefaultSmallModelID = liveDefault(provider.DefaultSmallModelID, filtered)
+	return provider, nil
+}
+
+func FetchProviderCatalog(provider catwalk.Provider, key string) (catwalk.Provider, error) {
+	return fetchProviderCatalog(provider, key, nil)
+}
+
+func catalogKeyFor(id, key string) string {
+	if id == "openrouter" || id == "kilo" || id == "ollama-local" {
+		return ""
+	}
+	return key
+}
+
+func liveDefault(preferred string, models []catwalk.Model) string {
+	for _, model := range models {
+		if model.ID == preferred {
+			return preferred
+		}
+	}
+	return models[0].ID
 }
 
 func saveDynamicProvidersToCache(providers []catwalk.Provider) error {
@@ -293,31 +479,5 @@ func loadDynamicProvidersFromCache() ([]catwalk.Provider, error) {
 }
 
 func getStaticDynamicProvidersFallback() []catwalk.Provider {
-	var out []catwalk.Provider
-
-	// 1. OpenCode Zen static fallback
-	out = append(out, catwalk.Provider{
-		ID:                  "opencode",
-		Name:                "OpenCode Zen",
-		APIEndpoint:         "https://opencode.ai/zen/v1",
-		APIKey:              "no-key-needed",
-		Type:                catwalk.TypeOpenAICompat,
-		DefaultLargeModelID: "big-pickle",
-		DefaultSmallModelID: "deepseek-v4-flash-free",
-		Models:              getStaticOpenCodeModels(),
-	})
-
-	return out
-}
-
-func getStaticOpenCodeModels() []catwalk.Model {
-	return []catwalk.Model{
-		{ID: "big-pickle", Name: "Big Pickle (stealth free)", ContextWindow: 200_000, DefaultMaxTokens: 8192},
-		{ID: "deepseek-v4-flash-free", Name: "DeepSeek V4 Flash Free", ContextWindow: 128_000, DefaultMaxTokens: 8192},
-		{ID: "mimo-v2.5-free", Name: "Xiaomi MiMo V2.5 Free", ContextWindow: 128_000, DefaultMaxTokens: 8192},
-		{ID: "qwen3.6-plus-free", Name: "Qwen 3.6 Plus Free", ContextWindow: 128_000, DefaultMaxTokens: 8192},
-		{ID: "minimax-m3-free", Name: "MiniMax M3 Free", ContextWindow: 128_000, DefaultMaxTokens: 8192, CanReason: true},
-		{ID: "nemotron-3-ultra-free", Name: "Nemotron 3 Ultra Free", ContextWindow: 1_000_000, DefaultMaxTokens: 8192, CanReason: true},
-		{ID: "north-mini-code-free", Name: "North Mini Code Free", ContextWindow: 128_000, DefaultMaxTokens: 8192},
-	}
+	return freeProviders.AllFreeProviders()
 }

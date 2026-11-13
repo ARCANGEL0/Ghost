@@ -14,8 +14,12 @@ func AllFreeProviders() []catwalk.Provider {
 		CloudflareProvider,
 		CohereProvider,
 		NvidiaNimProvider,
+		AmdRadeonProvider,
 		AionProvider,
 		HuggingFaceProvider,
+		LLM7Provider,
+		TyphoonProvider,
+		NousProvider,
 		OllamaLocalProvider,
 	}
 }
@@ -35,21 +39,15 @@ const (
 
 func ProviderTier(id string) Tier {
 	switch id {
-	case "opencode", "opencode-zen", "openrouter", "kilo", "oi-vscode":
+	case "opencode", "opencode-zen", "openrouter", "kilo", "oi-vscode", "amd-radeon", "nous-portal":
 		return TierFree
 	case "ollama-local":
 		return TierLocal
-	case "googleai", "groq", "cerebras", "cloudflare", "cohere", "nvidia-nim":
+	case "googleai", "groq", "cloudflare", "cohere", "nvidia-nim", "aion", "llm7", "typhoon":
 		return TierQuota
-	case "aion", "huggingface":
+	case "cerebras", "huggingface":
 		return TierCredits
 	default:
 		return ""
-	}
-}
-
-func AllFreeModelIDs() map[string]map[string]struct{} {
-	return map[string]map[string]struct{}{
-		"opencode-zen": OpenCodeZenFreeModelIDs(),
 	}
 }

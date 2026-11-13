@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/catwalk/pkg/embedded"
@@ -74,7 +76,9 @@ func UpdateProviders(pathOrURL string) error {
 	slog.Info("Updating dynamic providers cache...")
 	freshDynamic := fetchFreshDynamicProviders()
 	if len(freshDynamic) > 0 {
-		if err := saveDynamicProvidersToCache(freshDynamic); err != nil {
+		cached, _ := loadDynamicProvidersFromCache()
+		merged := mergeProviders(cached, freshDynamic)
+		if err := saveDynamicProvidersToCache(merged); err != nil {
 			slog.Warn("Failed to save dynamic providers to cache", "error", err)
 		} else {
 			slog.Info("Dynamic providers cache updated successfully")
@@ -121,13 +125,31 @@ func UpdateHyper(pathOrURL string) error {
 	return nil
 }
 
-// allowedProviders is the set of provider IDs we want to keep.
-// Only Nvidia NIM (free tier) and OpenCode Zen (free models) are allowed.
 var allowedProviders = map[string]bool{
 	"nvidia-nim":   true,
 	"oi-vscode":    true,
 	"opencode":     true,
 	"opencode-zen": true,
+	"openrouter":   true,
+	"kilo":         true,
+	"groq":         true,
+	"cerebras":     true,
+	"googleai":     true,
+	"cloudflare":   true,
+	"cohere":       true,
+	"amd-radeon":   true,
+	"aion":         true,
+	"huggingface":  true,
+	"llm7":         true,
+	"typhoon":      true,
+	"nous-portal":  true,
+	"ollama-local": true,
+}
+
+var dynamicCatalogState struct {
+	sync.Mutex
+	refreshed time.Time
+	providers []catwalk.Provider
 }
 
 // mergeProviders overlays src on top of dst. If a provider ID in src already
@@ -170,20 +192,42 @@ func filterProviders(providers []catwalk.Provider) []catwalk.Provider {
 // 3. try to get the fresh list of providers, and return either this new list,
 // the cached list, or the embedded list if all others fail.
 func Providers(cfg *Config) ([]catwalk.Provider, error) {
-	// Ghost uses only locally-defined providers (Nvidia NIM + OpenCode Zen).
-	// No catwalk registry fetch, no Hyper fetch — instant startup.
 	var providerList []catwalk.Provider
 
-	// 1. Local providers (Nvidia NIM with 11 free models)
-	providerList = append(providerList, getLocalProviders()...)
-
-	// 2. Static free providers (OpenCode Zen free models)
-	providerList = mergeProviders(providerList, freeProviders.AllFreeProviders())
-
-	// 3. Dynamically-fetched providers (OpenCode Zen live model list, cached locally)
+	providerList = append(providerList, freeProviders.AllFreeProviders()...)
 	providerList = mergeProviders(providerList, fetchDynamicProviders())
+	if !providerAutoUpdateDisabled(cfg) {
+		providerList = mergeProviders(providerList, refreshProviderCatalogs(cfg))
+	}
 
 	return filterProviders(providerList), nil
+}
+
+func providerAutoUpdateDisabled(cfg *Config) bool {
+	return cfg != nil && cfg.Options != nil && cfg.Options.DisableProviderAutoUpdate
+}
+
+func refreshProviderCatalogs(cfg *Config) []catwalk.Provider {
+	dynamicCatalogState.Lock()
+	defer dynamicCatalogState.Unlock()
+	if time.Since(dynamicCatalogState.refreshed) < 10*time.Minute {
+		return append([]catwalk.Provider(nil), dynamicCatalogState.providers...)
+	}
+	dynamicCatalogState.refreshed = time.Now()
+
+	fresh := fetchFreshDynamicProviders(cfg)
+	if len(fresh) == 0 {
+		return nil
+	}
+
+	cached, _ := loadDynamicProvidersFromCache()
+	merged := mergeProviders(cached, fresh)
+	if err := saveDynamicProvidersToCache(merged); err != nil {
+		slog.Warn("Failed to save live provider catalogs", "error", err)
+	}
+
+	dynamicCatalogState.providers = append([]catwalk.Provider(nil), fresh...)
+	return fresh
 }
 
 type cache[T any] struct {

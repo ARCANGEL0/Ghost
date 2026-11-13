@@ -10,19 +10,7 @@ import (
 // cycle is in flight.
 var dynamicRefreshRunning atomic.Bool
 
-// RefreshDynamicProvidersInBackground starts a single, non-blocking refresh of
-// the dynamically-fetched provider model lists (OpenCode Zen + Nvidia NIM).
-//
-// The refresh runs on a background goroutine so startup is never blocked: the
-// application keeps serving the model list it loaded from cache/static while
-// the fresh list is fetched and written to the local cache for the next run.
-//
-// Behavior matches the opencode-zen-model-refresh spec:
-//   - No-op when auto-update is disabled.
-//   - No-op when a refresh is already running (concurrency guard).
-//   - On any fetch failure, or a result with zero providers, the existing cache
-//     is left unchanged and a diagnostic is logged. Never panics or blocks.
-func RefreshDynamicProvidersInBackground(autoUpdateDisabled bool) {
+func RefreshDynamicProvidersInBackground(autoUpdateDisabled bool, cfgs ...*Config) {
 	if autoUpdateDisabled {
 		slog.Debug("Provider auto-update disabled; skipping background model refresh")
 		return
@@ -34,15 +22,15 @@ func RefreshDynamicProvidersInBackground(autoUpdateDisabled bool) {
 
 	go func() {
 		defer dynamicRefreshRunning.Store(false)
-		refreshDynamicProvidersOnce()
+		refreshDynamicProvidersOnce(cfgs...)
 	}()
 }
 
 // refreshDynamicProvidersOnce performs one Refresh_Cycle synchronously. It is
 // the unit of work executed by the background goroutine and is also directly
 // testable.
-func refreshDynamicProvidersOnce() {
-	fresh := fetchFreshDynamicProviders()
+func refreshDynamicProvidersOnce(cfgs ...*Config) {
+	fresh := fetchFreshDynamicProviders(cfgs...)
 	if len(fresh) == 0 {
 		// All remote sources failed or returned nothing usable — keep the
 		// existing cache contents unchanged.
@@ -50,7 +38,9 @@ func refreshDynamicProvidersOnce() {
 		return
 	}
 
-	if err := saveDynamicProvidersToCache(fresh); err != nil {
+	cached, _ := loadDynamicProvidersFromCache()
+	merged := mergeProviders(cached, fresh)
+	if err := saveDynamicProvidersToCache(merged); err != nil {
 		slog.Warn("Failed to persist refreshed model cache", "error", err)
 		return
 	}

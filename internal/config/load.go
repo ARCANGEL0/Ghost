@@ -203,6 +203,9 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 				p.Models = models
 			}
 		}
+		if len(p.Models) == 0 {
+			continue
+		}
 
 		headers := map[string]string{}
 		if len(p.DefaultHeaders) > 0 {
@@ -298,6 +301,7 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 		case "oi-vscode":
 			// OI VSCode Server is shown in the model list even without an API key.
 			// If the user selects it without a key, the auth dialog will prompt.
+		case "kilo":
 		default:
 			// if the provider api or endpoint are missing we skip them
 			v, err := resolver.ResolveValue(p.APIKey)

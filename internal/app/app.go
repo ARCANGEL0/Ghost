@@ -116,11 +116,6 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	// Check for updates in the background.
 	go app.checkForUpdates(ctx)
 
-	// Refresh the dynamic provider model lists (OpenCode Zen + Nvidia NIM) in
-	// the background so the next session reflects the latest free models.
-	// Non-blocking; honors the provider auto-update setting.
-	config.RefreshDynamicProvidersInBackground(cfg.Options.DisableProviderAutoUpdate)
-
 	go mcp.Initialize(ctx, app.Permissions, store)
 
 	// Wire collab allowed origins from config.

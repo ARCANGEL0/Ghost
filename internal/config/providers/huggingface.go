@@ -9,5 +9,4 @@ var HuggingFaceProvider = catwalk.Provider{
 	APIKey:              "$HF_TOKEN",
 	Type:                catwalk.TypeOpenAICompat,
 	DefaultLargeModelID: "openai/gpt-oss-120b:fastest",
-	Models:              []catwalk.Model{{ID: "openai/gpt-oss-120b:fastest", Name: "GPT OSS 120B", ContextWindow: 131_072, DefaultMaxTokens: 8192}},
 }

@@ -582,6 +582,14 @@ func (c *ProviderConfig) TestConnection(resolver VariableResolver) error {
 		switch providerID {
 		case catwalk.InferenceProviderOpenRouter:
 			testURL = baseURL + "/credits"
+		case "cohere":
+			testURL = "https://api.cohere.com/v1/models"
+		case "cloudflare":
+			accountID, err := resolver.ResolveValue("$CLOUDFLARE_ACCOUNT_ID")
+			if err != nil || accountID == "" {
+				return fmt.Errorf("CLOUDFLARE_ACCOUNT_ID is required for Cloudflare Workers AI")
+			}
+			testURL = "https://api.cloudflare.com/client/v4/accounts/" + url.PathEscape(accountID) + "/ai/models/search?task=text-generation&per_page=1"
 		default:
 			testURL = baseURL + "/models"
 		}
