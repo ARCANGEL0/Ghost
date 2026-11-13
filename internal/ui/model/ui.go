@@ -44,6 +44,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/permission"
 	"github.com/swadhinbiswas/ghost/internal/pubsub"
 	"github.com/swadhinbiswas/ghost/internal/session"
+	"github.com/swadhinbiswas/ghost/internal/sessionimport"
 	"github.com/swadhinbiswas/ghost/internal/ui/anim"
 	"github.com/swadhinbiswas/ghost/internal/ui/attachments"
 	"github.com/swadhinbiswas/ghost/internal/ui/chat"
@@ -110,6 +111,11 @@ const (
 
 type openEditorMsg struct {
 	Text string
+}
+
+type importedClaudeMsg struct {
+	sessionID string
+	count     int
 }
 
 type (
@@ -559,6 +565,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateLayoutAndSize()
 		// Update terminal title with session name
 		m.updateTerminalTitle()
+	case importedClaudeMsg:
+		cmds = append(cmds,
+			util.ReportInfo(fmt.Sprintf("Imported %d Claude Code messages", msg.count)),
+			m.loadSession(msg.sessionID),
+		)
 
 	case sessionFilesUpdatesMsg:
 		m.sessionFiles = msg.sessionFiles
@@ -3856,7 +3867,14 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 		return nil
 	case "models":
 		return m.openModelsDialog()
-	case "sessions", "resume", "continue":
+	case "import":
+		return m.importClaudeSession(args)
+	case "resume":
+		if strings.Contains(args, "--claude") {
+			return m.importClaudeSession(args)
+		}
+		return m.openSessionsDialog()
+	case "sessions", "continue":
 		return m.openSessionsDialog()
 	case "themes":
 		return m.openThemePickerDialog()
@@ -3878,6 +3896,51 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 		// Unknown command
 		cmds = append(cmds, util.ReportWarn("Unknown command: /"+cmd))
 		return tea.Batch(cmds...)
+	}
+}
+
+func (m *UI) importClaudeSession(args string) tea.Cmd {
+	if m.isAgentBusy() {
+		return util.ReportWarn("Agent is working, please wait before importing a session")
+	}
+	fields := strings.Fields(args)
+	if len(fields) != 2 || fields[0] != "--claude" {
+		return util.ReportWarn("Usage: /import --claude <session-id>")
+	}
+	sessionID := fields[1]
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		imported, err := sessionimport.Claude(sessionID)
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		shortID := sessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		newSession, err := m.com.App.Sessions.Create(ctx, "Imported Claude Code session "+shortID)
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		for _, item := range imported {
+			role := message.User
+			parts := []message.ContentPart{message.TextContent{Text: item.Text}}
+			if item.Role == "assistant" {
+				role = message.Assistant
+				parts = append(parts, message.Finish{Reason: message.FinishReasonEndTurn})
+			}
+			if _, err := m.com.App.Messages.Create(ctx, newSession.ID, message.CreateMessageParams{
+				Role:     role,
+				Parts:    parts,
+				Model:    "imported",
+				Provider: "claude-code",
+			}); err != nil {
+				_ = m.com.App.Sessions.Delete(ctx, newSession.ID)
+				return util.ReportError(fmt.Errorf("import Claude Code messages: %w", err))()
+			}
+		}
+		return importedClaudeMsg{sessionID: newSession.ID, count: len(imported)}
 	}
 }
 

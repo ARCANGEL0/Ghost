@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/import --claude <session-id>` to bring a Claude Code transcript into a new Ghost session.
 - `AUTO:FREE`, which tries remote Kilo and OI VSCode routes, plus configured OpenRouter free routes.
 - Live model catalogs for OpenRouter, Kilo, NVIDIA NIM, Groq,
   Cerebras, Google AI, Cloudflare, Cohere, AMD Radeon Cloud, Aion Labs, Hugging

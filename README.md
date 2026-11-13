@@ -48,6 +48,8 @@ These providers can be used without entering an API key:
 | **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
 | **Ollama** | Models installed on your machine | Local inference |
 
+Import a Claude Code conversation into a new Ghost session with `/import --claude <session-id>`. `/resume --claude <session-id>` is an alias. See [session import](docs/session-import.md).
+
 Add a key to unlock more:
 
 Use `ghost free` to see current models from OpenRouter, Kilo, Groq, Cerebras, Google AI, Cloudflare, Cohere, NVIDIA NIM, AMD Radeon Cloud, Aion Labs, Hugging Face, LLM7, OpenTyphoon, and Nous Portal. Add a provider key with `ghost login <provider>`.
