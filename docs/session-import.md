@@ -1,17 +1,20 @@
 # Session import
 
-Ghost can import a Claude Code transcript into a new local session. The import
-keeps user and assistant messages, along with readable tool calls and results.
-It leaves the original Claude Code session untouched.
+Ghost can import Claude Code and Codex transcripts into a new local session.
+The import keeps user and assistant messages, along with readable tool calls
+and results. It leaves the original session untouched.
 
 In Ghost, run:
 
 ```text
 /import --claude <session-id>
+/import --codex <session-id>
 ```
 
-`/resume --claude <session-id>` does the same thing. Ghost reads the matching
-JSONL file from `~/.claude/projects`. If Claude Code uses a custom config path,
-set `CLAUDE_CONFIG_DIR` before starting Ghost.
+`/resume --claude <session-id>` and `/resume --codex <session-id>` are aliases.
+Ghost reads Claude Code transcripts from `~/.claude/projects` and Codex
+transcripts from `~/.codex/sessions`. Set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`
+before starting Ghost if either tool uses a custom config path.
 
-After import, choose any configured Ghost model and continue the conversation.
+Import creates a Ghost session with the transcript. Choose any configured Ghost
+model to continue it.

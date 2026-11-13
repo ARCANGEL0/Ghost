@@ -48,7 +48,7 @@ These providers can be used without entering an API key:
 | **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
 | **Ollama** | Models installed on your machine | Local inference |
 
-Import a Claude Code conversation into a new Ghost session with `/import --claude <session-id>`. `/resume --claude <session-id>` is an alias. See [session import](docs/session-import.md).
+Import a Claude Code or Codex conversation into a new Ghost session with `/import --claude <session-id>` or `/import --codex <session-id>`. `/resume` accepts the same flags. See [session import](docs/session-import.md).
 
 Add a key to unlock more:
 

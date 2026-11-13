@@ -113,9 +113,10 @@ type openEditorMsg struct {
 	Text string
 }
 
-type importedClaudeMsg struct {
+type importedSessionMsg struct {
 	sessionID string
 	count     int
+	provider  string
 }
 
 type (
@@ -565,9 +566,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateLayoutAndSize()
 		// Update terminal title with session name
 		m.updateTerminalTitle()
-	case importedClaudeMsg:
+	case importedSessionMsg:
 		cmds = append(cmds,
-			util.ReportInfo(fmt.Sprintf("Imported %d Claude Code messages", msg.count)),
+			util.ReportInfo(fmt.Sprintf("Imported %d %s messages", msg.count, msg.provider)),
 			m.loadSession(msg.sessionID),
 		)
 
@@ -3868,10 +3869,10 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 	case "models":
 		return m.openModelsDialog()
 	case "import":
-		return m.importClaudeSession(args)
+		return m.importSession(args)
 	case "resume":
-		if strings.Contains(args, "--claude") {
-			return m.importClaudeSession(args)
+		if strings.Contains(args, "--claude") || strings.Contains(args, "--codex") {
+			return m.importSession(args)
 		}
 		return m.openSessionsDialog()
 	case "sessions", "continue":
@@ -3899,19 +3900,33 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 	}
 }
 
-func (m *UI) importClaudeSession(args string) tea.Cmd {
+func (m *UI) importSession(args string) tea.Cmd {
 	if m.isAgentBusy() {
 		return util.ReportWarn("Agent is working, please wait before importing a session")
 	}
 	fields := strings.Fields(args)
-	if len(fields) != 2 || fields[0] != "--claude" {
-		return util.ReportWarn("Usage: /import --claude <session-id>")
+	if len(fields) != 2 || (fields[0] != "--claude" && fields[0] != "--codex") {
+		return util.ReportWarn("Usage: /import --claude|--codex <session-id>")
 	}
 	sessionID := fields[1]
+	provider := strings.TrimPrefix(fields[0], "--")
+	providerID := provider
+	providerName := "Codex"
+	if provider == "claude" {
+		providerID = "claude-code"
+		providerName = "Claude Code"
+	}
 
 	return func() tea.Msg {
 		ctx := context.Background()
-		imported, err := sessionimport.Claude(sessionID)
+		var imported []sessionimport.Message
+		var err error
+		switch provider {
+		case "claude":
+			imported, err = sessionimport.Claude(sessionID)
+		case "codex":
+			imported, err = sessionimport.Codex(sessionID)
+		}
 		if err != nil {
 			return util.ReportError(err)()
 		}
@@ -3919,7 +3934,8 @@ func (m *UI) importClaudeSession(args string) tea.Cmd {
 		if len(shortID) > 8 {
 			shortID = shortID[:8]
 		}
-		newSession, err := m.com.App.Sessions.Create(ctx, "Imported Claude Code session "+shortID)
+		name := "Imported " + providerName + " session " + shortID
+		newSession, err := m.com.App.Sessions.Create(ctx, name)
 		if err != nil {
 			return util.ReportError(err)()
 		}
@@ -3934,13 +3950,13 @@ func (m *UI) importClaudeSession(args string) tea.Cmd {
 				Role:     role,
 				Parts:    parts,
 				Model:    "imported",
-				Provider: "claude-code",
+				Provider: providerID,
 			}); err != nil {
 				_ = m.com.App.Sessions.Delete(ctx, newSession.ID)
-				return util.ReportError(fmt.Errorf("import Claude Code messages: %w", err))()
+				return util.ReportError(fmt.Errorf("import %s messages: %w", provider, err))()
 			}
 		}
-		return importedClaudeMsg{sessionID: newSession.ID, count: len(imported)}
+		return importedSessionMsg{sessionID: newSession.ID, count: len(imported), provider: providerName}
 	}
 }
 
