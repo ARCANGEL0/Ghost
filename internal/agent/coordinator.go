@@ -24,6 +24,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/agent/tools"
 	"github.com/swadhinbiswas/ghost/internal/collab"
 	"github.com/swadhinbiswas/ghost/internal/config"
+	freeProviders "github.com/swadhinbiswas/ghost/internal/config/providers"
 	"github.com/swadhinbiswas/ghost/internal/feedback"
 	"github.com/swadhinbiswas/ghost/internal/filetracker"
 	"github.com/swadhinbiswas/ghost/internal/filewatcher"
@@ -659,77 +660,159 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 		return Model{}, Model{}, errSmallModelNotSelected
 	}
 
-	largeProviderCfg, ok := c.cfg.Config().Providers.Get(largeModelCfg.Provider)
-	if !ok {
-		return Model{}, Model{}, errLargeModelProviderNotConfigured
-	}
-
-	largeProvider, err := c.buildProvider(largeProviderCfg, largeModelCfg, isSubAgent)
+	largeModel, largeCatwalkModel, err := c.buildSelectedModel(ctx, largeModelCfg, isSubAgent, errLargeModelProviderNotConfigured, errLargeModelNotFound)
 	if err != nil {
 		return Model{}, Model{}, err
 	}
-
-	smallProviderCfg, ok := c.cfg.Config().Providers.Get(smallModelCfg.Provider)
-	if !ok {
-		return Model{}, Model{}, errSmallModelProviderNotConfigured
-	}
-
-	smallProvider, err := c.buildProvider(smallProviderCfg, smallModelCfg, true)
-	if err != nil {
-		return Model{}, Model{}, err
-	}
-
-	var largeCatwalkModel *catwalk.Model
-	var smallCatwalkModel *catwalk.Model
-
-	for _, m := range largeProviderCfg.Models {
-		if m.ID == largeModelCfg.Model {
-			largeCatwalkModel = &m
-		}
-	}
-	for _, m := range smallProviderCfg.Models {
-		if m.ID == smallModelCfg.Model {
-			smallCatwalkModel = &m
-		}
-	}
-
-	if largeCatwalkModel == nil {
-		return Model{}, Model{}, errLargeModelNotFound
-	}
-
-	if smallCatwalkModel == nil {
-		return Model{}, Model{}, errSmallModelNotFound
-	}
-
-	largeModelID := largeModelCfg.Model
-	smallModelID := smallModelCfg.Model
-
-	if largeModelCfg.Provider == openrouter.Name && isExactoSupported(largeModelID) {
-		largeModelID += ":exacto"
-	}
-
-	if smallModelCfg.Provider == openrouter.Name && isExactoSupported(smallModelID) {
-		smallModelID += ":exacto"
-	}
-
-	largeModel, err := largeProvider.LanguageModel(ctx, largeModelID)
-	if err != nil {
-		return Model{}, Model{}, err
-	}
-	smallModel, err := smallProvider.LanguageModel(ctx, smallModelID)
+	smallModel, smallCatwalkModel, err := c.buildSelectedModel(ctx, smallModelCfg, true, errSmallModelProviderNotConfigured, errSmallModelNotFound)
 	if err != nil {
 		return Model{}, Model{}, err
 	}
 
 	return Model{
 			Model:      largeModel,
-			CatwalkCfg: *largeCatwalkModel,
+			CatwalkCfg: largeCatwalkModel,
 			ModelCfg:   largeModelCfg,
 		}, Model{
 			Model:      smallModel,
-			CatwalkCfg: *smallCatwalkModel,
+			CatwalkCfg: smallCatwalkModel,
 			ModelCfg:   smallModelCfg,
 		}, nil
+}
+
+func (c *coordinator) buildSelectedModel(ctx context.Context, selected config.SelectedModel, isSubAgent bool, missingProvider, missingModel error) (fantasy.LanguageModel, catwalk.Model, error) {
+	if selected.Provider == "auto-free" {
+		var modelCfg catwalk.Model
+		for _, model := range freeProviders.AutoFreeProvider.Models {
+			if model.ID == selected.Model {
+				modelCfg = model
+				break
+			}
+		}
+		if modelCfg.ID == "" {
+			return nil, catwalk.Model{}, missingModel
+		}
+		model, err := c.buildAutoFreeModel(ctx, isSubAgent)
+		return model, modelCfg, err
+	}
+
+	providerCfg, ok := c.cfg.Config().Providers.Get(selected.Provider)
+	if !ok {
+		return nil, catwalk.Model{}, missingProvider
+	}
+	provider, err := c.buildProvider(providerCfg, selected, isSubAgent)
+	if err != nil {
+		return nil, catwalk.Model{}, err
+	}
+
+	var modelCfg *catwalk.Model
+	for i := range providerCfg.Models {
+		if providerCfg.Models[i].ID == selected.Model {
+			modelCfg = &providerCfg.Models[i]
+			break
+		}
+	}
+	if modelCfg == nil {
+		return nil, catwalk.Model{}, missingModel
+	}
+
+	modelID := selected.Model
+	if selected.Provider == openrouter.Name && isExactoSupported(modelID) {
+		modelID += ":exacto"
+	}
+	languageModel, err := provider.LanguageModel(ctx, modelID)
+	if err != nil {
+		return nil, catwalk.Model{}, err
+	}
+	return languageModel, *modelCfg, nil
+}
+
+type autoFreePick struct {
+	providerID string
+	provider   config.ProviderConfig
+	model      catwalk.Model
+}
+
+func (c *coordinator) buildAutoFreeModel(ctx context.Context, isSubAgent bool) (fantasy.LanguageModel, error) {
+	var picks []autoFreePick
+	for providerID, providerCfg := range c.cfg.Config().Providers.Seq2() {
+		if providerCfg.Disable {
+			continue
+		}
+		for _, model := range providerCfg.Models {
+			if isFreeFallbackModel(providerID, model.ID) {
+				picks = append(picks, autoFreePick{providerID: providerID, provider: providerCfg, model: model})
+			}
+		}
+	}
+
+	slices.SortStableFunc(picks, func(a, b autoFreePick) int {
+		if rank := freeProviderRank(a.providerID) - freeProviderRank(b.providerID); rank != 0 {
+			return rank
+		}
+		if cmp := strings.Compare(a.providerID, b.providerID); cmp != 0 {
+			return cmp
+		}
+		aRouter := a.model.ID == "kilo-auto/free" || a.model.ID == "openrouter/free"
+		bRouter := b.model.ID == "kilo-auto/free" || b.model.ID == "openrouter/free"
+		if aRouter != bRouter {
+			if aRouter {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.model.ID, b.model.ID)
+	})
+
+	models := make([]fantasy.LanguageModel, 0, len(picks))
+	var errs []error
+	for _, pick := range picks {
+		provider, err := c.buildProvider(pick.provider, config.SelectedModel{Provider: pick.providerID, Model: pick.model.ID}, isSubAgent)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %w", pick.providerID, pick.model.ID, err))
+			continue
+		}
+		model, err := provider.LanguageModel(ctx, pick.model.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %w", pick.providerID, pick.model.ID, err))
+			continue
+		}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return nil, autoFreeError(errs)
+	}
+	return &autoFreeModel{models: models}, nil
+}
+
+func isFreeFallbackModel(providerID, modelID string) bool {
+	switch providerID {
+	case "kilo":
+		return modelID == "kilo-auto/free" || strings.HasSuffix(modelID, ":free")
+	case "oi-vscode":
+		return modelID != ""
+	case "openrouter":
+		return modelID == "openrouter/free" || strings.HasSuffix(modelID, ":free")
+	case "ollama-local":
+		return modelID != ""
+	default:
+		return false
+	}
+}
+
+func freeProviderRank(providerID string) int {
+	switch providerID {
+	case "kilo":
+		return 0
+	case "oi-vscode":
+		return 1
+	case "openrouter":
+		return 2
+	case "ollama-local":
+		return 3
+	default:
+		return 3
+	}
 }
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {

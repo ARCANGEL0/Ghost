@@ -37,7 +37,7 @@ func runFree(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return fmt.Errorf("usage: ghost free use <provider/model>")
 			}
-			catalog, err := currentProviders()
+			catalog, err := currentProviders(cmd)
 			if err != nil {
 				return err
 			}
@@ -52,7 +52,7 @@ func runFree(cmd *cobra.Command, args []string) error {
 			return printFreeInstall(out)
 		}
 	}
-	catalog, err := currentProviders()
+	catalog, err := currentProviders(cmd)
 	if err != nil {
 		return err
 	}
@@ -63,8 +63,14 @@ func runFree(cmd *cobra.Command, args []string) error {
 	return listFreeModels(out, filter, catalog)
 }
 
-func currentProviders() ([]catwalk.Provider, error) {
-	store, err := config.Init("", "", false)
+func currentProviders(cmd *cobra.Command) ([]catwalk.Provider, error) {
+	cwd, err := ResolveCwd(cmd)
+	if err != nil {
+		return nil, err
+	}
+	dataDir, _ := cmd.Flags().GetString("data-dir")
+	debug, _ := cmd.Flags().GetBool("debug")
+	store, err := config.Init(cwd, dataDir, debug)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +126,7 @@ func useFreeModel(w io.Writer, id string, catalog []catwalk.Provider) error {
 func createFreeCombo(w io.Writer, name string) error {
 	fmt.Fprintf(w, "Free fallback suggestion %q:\n", name)
 	fmt.Fprintln(w, "Use these provider/model IDs in your routing setup:")
-	fmt.Fprintln(w, "kilo/kilo-auto/free -> openrouter/openrouter/free")
+	fmt.Fprintln(w, "auto-free/auto:free -> kilo/kilo-auto/free -> openrouter/openrouter/free")
 	return nil
 }
 
@@ -143,6 +149,8 @@ func isFreeCatalogModel(provider string, model catwalk.Model) bool {
 		return strings.HasSuffix(model.ID, ":free") || model.ID == "openrouter/free"
 	case "kilo":
 		return strings.HasSuffix(model.ID, ":free") || model.ID == "kilo-auto/free"
+	case "auto-free":
+		return model.ID == "auto:free"
 	case "cloudflare":
 		id := strings.ToLower(model.ID)
 		return !strings.Contains(id, "kimi-k2") && !strings.Contains(id, "glm-5.") && !strings.Contains(id, "deepseek-v4-")

@@ -4,6 +4,7 @@ import "charm.land/catwalk/pkg/catwalk"
 
 func AllFreeProviders() []catwalk.Provider {
 	return []catwalk.Provider{
+		AutoFreeProvider,
 		OpenRouterFreeProvider,
 		KiloProvider,
 		OIVSCodeProvider,
@@ -38,7 +39,7 @@ const (
 
 func ProviderTier(id string) Tier {
 	switch id {
-	case "openrouter", "kilo", "oi-vscode", "amd-radeon", "nous-portal":
+	case "auto-free", "openrouter", "kilo", "oi-vscode", "amd-radeon", "nous-portal":
 		return TierFree
 	case "ollama-local":
 		return TierLocal

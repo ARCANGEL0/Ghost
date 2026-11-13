@@ -6,6 +6,7 @@ Ghost loads model catalogs from provider APIs and keeps a local cache for offlin
 
 | Provider ID | Access | Setup |
 | --- | --- | --- |
+| `auto-free` | Tries Kilo and OI VSCode routes, free OpenRouter routes when configured, then local Ollama models | No setup; provider keys and Ollama are optional |
 | `openrouter` | Free models marked `:free`, plus the `openrouter/free` router | `ghost login openrouter` |
 | `kilo` | Free models marked `:free`; anonymous requests are allowed. `kilo-auto/free` is a stable free route | No key required; `ghost login kilo` is optional |
 | `oi-vscode` | Community-hosted endpoint | No key required; availability is not guaranteed |
@@ -40,10 +41,12 @@ Cloudflare also needs an account ID. Set `CLOUDFLARE_ACCOUNT_ID` in the environm
 To use a listed model:
 
 ```sh
-ghost free use openrouter/openrouter/free
+ghost free use auto-free/auto:free
 ```
 
 Model IDs can contain `/`, so the command stores the model's full ID with the provider selected from the live catalog.
+
+`AUTO:FREE` tries each eligible route until one responds. It retries stream failures only before the model starts returning text or tool calls, so it does not duplicate partial answers or tool requests. OpenRouter routes are included only when an OpenRouter key is configured; Ollama routes are included only for models installed locally.
 
 ## What the free labels mean
 

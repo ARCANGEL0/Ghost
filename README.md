@@ -43,6 +43,7 @@ These providers can be used without entering an API key:
 
 | Provider | Models | Notes |
 | --- | --- | --- |
+| **AUTO:FREE** | Free routes from Kilo, OI VSCode, configured OpenRouter, and local Ollama | Retries the next route when one fails before responding |
 | **Kilo Gateway** | Current `:free` models and `kilo-auto/free` | Free models allow anonymous requests |
 | **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
 | **Ollama** | Models installed on your machine | Local inference |

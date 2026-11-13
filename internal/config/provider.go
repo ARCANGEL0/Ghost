@@ -126,6 +126,7 @@ func UpdateHyper(pathOrURL string) error {
 }
 
 var allowedProviders = map[string]bool{
+	"auto-free":    true,
 	"nvidia-nim":   true,
 	"oi-vscode":    true,
 	"openrouter":   true,
