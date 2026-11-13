@@ -4,7 +4,7 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
 const commands = [
   { cmd: 'ghost', desc: 'Open the interactive TUI chat session (default).' },
   { cmd: 'ghost run "<prompt>"', desc: 'Run a one-off prompt without entering the full UI.' },
-  { cmd: 'ghost free', desc: 'Pick a free model to chat with from a quick picker.' },
+  { cmd: 'ghost free', desc: 'List current free, quota-based, and local model catalogs.' },
   { cmd: 'ghost models', desc: 'List available models across configured providers.' },
   { cmd: 'ghost login', desc: 'Add credentials for keyed providers (Gemini, Groq, etc.).' },
   { cmd: 'ghost theme', desc: 'Switch the TUI theme (Dracula ships by default).' },
@@ -35,8 +35,10 @@ const commands = [
   <h3>One-off prompt</h3>
   <pre class="block"><code>ghost run "write a bash script to back up ~/notes to S3"</code></pre>
 
-  <h3>Pick a free model and chat</h3>
-  <pre class="block"><code>ghost free</code></pre>
+  <h3>List free model catalogs</h3>
+  <pre class="block"><code>ghost free
+ghost free use openrouter/openrouter/free</code></pre>
+  <p><code>ghost free use</code> prints a config snippet for the selected model.</p>
 
   <h3>Add a keyed provider</h3>
   <pre class="block"><code>ghost login</code></pre>

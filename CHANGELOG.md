@@ -8,14 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Automatic background refresh of the OpenCode Zen and Nvidia NIM model lists on
-  startup. Non-blocking, runs once per launch, guarded against concurrency, and
-  honors `GHOST_DISABLE_PROVIDER_AUTO_UPDATE`. The refreshed catalog is cached
-  for the next session; failures leave the existing cache untouched.
+- Live model catalogs for OpenRouter, Kilo, OpenCode Zen, NVIDIA NIM, Groq,
+  Cerebras, Google AI, Cloudflare, Cohere, AMD Radeon Cloud, Aion Labs, Hugging
+  Face, LLM7, OpenTyphoon, Nous Portal, and local Ollama, with cached fallback
+  when a refresh fails.
 - `GHOST_OPENCODE_MODELS_URL` override for the OpenCode Zen models endpoint.
-- Remotely-updatable Nvidia NIM model catalog (`nvidia_nim_models.json`) fetched
-  from GitHub, with an embedded offline fallback and `GHOST_NVIDIA_NIM_MODELS_URL`
-  override.
+- `ghost login <provider>` setup for API-key gateways and `ghost free` live model
+  discovery.
 - Astro-based website and documentation under `site/` (built with Bun).
 - Continuous Integration: build, vet, test (with race detector and coverage),
   and `golangci-lint` on every push and pull request.

@@ -35,7 +35,9 @@ go run ./main.go
 | `internal/ui` | The terminal UI (Bubble Tea / Lipgloss). |
 | `internal/db` | Generated data layer (sqlc) — do not edit by hand. |
 | `site/` | Astro website + docs (built with Bun). |
-| `nvidia_nim_models.json` | Remotely-updatable Nvidia NIM model catalog. |
+| `internal/config/catalogs.go` | Live model catalog adapters and free-model filters. |
+| `internal/config/providers/` | Built-in gateway endpoints and provider defaults. |
+| `docs/free-model-providers.md` | Provider setup, free-tier limits, and source links. |
 
 ## Development workflow
 
@@ -76,7 +78,7 @@ bun run build
 
 ## Adding or updating models
 
-The Nvidia NIM catalog is driven by `nvidia_nim_models.json` at the repo root. Edit that file and open a PR — the change ships to users without a new binary release once merged. The embedded fallback in `internal/config/local_providers.go` should be kept in sync.
+Provider catalogs are loaded through adapters in `internal/config/catalogs.go`. Add a provider definition under `internal/config/providers/`, register its tier and catalog behavior, and link the official API and free-tier documentation in `docs/free-model-providers.md`. Use live model metadata when the API exposes it; document any free-tier rules that must be maintained in code.
 
 ## Reporting bugs & requesting features
 

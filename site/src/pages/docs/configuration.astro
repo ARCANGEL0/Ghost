@@ -2,10 +2,9 @@
 import DocsLayout from '../../layouts/DocsLayout.astro';
 
 const envs = [
-  { name: 'NVIDIA_API_KEY', desc: 'Enable the Nvidia NIM provider.' },
-  { name: 'GHOST_NVIDIA_NIM_MODELS_URL', desc: 'Override the remote Nvidia NIM model catalog URL (defaults to the GitHub-hosted list).' },
+  { name: 'CLOUDFLARE_ACCOUNT_ID', desc: 'Select the Cloudflare account used for Workers AI model discovery.' },
   { name: 'GHOST_OPENCODE_MODELS_URL', desc: 'Override the OpenCode Zen models endpoint.' },
-  { name: 'GHOST_DISABLE_PROVIDER_AUTO_UPDATE', desc: 'Disable the automatic background model refresh on startup.' },
+  { name: 'GHOST_DISABLE_PROVIDER_AUTO_UPDATE', desc: 'Disable automatic provider catalog refresh.' },
   { name: 'GHOST_DISABLE_DEFAULT_PROVIDERS', desc: 'Skip all built-in providers (bring-your-own only).' },
   { name: 'GHOST_GLOBAL_CONFIG', desc: 'Override the global config directory.' },
   { name: 'XDG_CONFIG_HOME', desc: 'Standard config location used to resolve ghost.json.' },
@@ -53,6 +52,8 @@ const exampleConfig = `{
     Any <code>GHOST_*</code> environment variable is temporarily applied to the matching provider
     setting at load time, which is handy for one-off overrides.
   </div>
+
+  <p>Save gateway keys with <code>ghost login &lt;provider&gt;</code>. See the <a href="./providers">provider guide</a> for supported gateways and setup details.</p>
 
   <h2>Themes</h2>
   <p>Ghost ships with the Dracula theme. Switch themes interactively:</p>

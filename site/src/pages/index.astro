@@ -18,31 +18,31 @@ const heroTerminal = [
 ];
 
 const features = [
-  { icon: 'zap', title: 'Free out of the box', body: 'Pre-wired to free providers. No subscription, no credit card, no API key to start chatting.', accent: 'var(--green)' },
+  { icon: 'zap', title: 'Free out of the box', body: 'Start with keyless gateways, then add provider keys for more free models, quotas, and credits.', accent: 'var(--green)' },
   { icon: 'gauge', title: 'Instant cold start', body: 'A single native Go binary that loads its model list from a local cache and launches immediately.', accent: 'var(--cyan)' },
   { icon: 'palette', title: 'Themeable TUI', body: 'A responsive, polished interface. The Dracula theme ships by default — switch anytime.', accent: 'var(--purple)' },
   { icon: 'globe', title: 'Truly cross-platform', body: 'Linux, macOS, and Windows on amd64 and arm64. One tool, every machine you touch.', accent: 'var(--orange)' },
-  { icon: 'plug', title: 'Bring your own keys', body: 'Connect Gemini, Groq, Cerebras, Copilot, and OpenRouter through the Catwalk registry.', accent: 'var(--pink)' },
+  { icon: 'plug', title: 'Bring your own keys', body: 'Use `ghost login <provider>` to connect more model gateways.', accent: 'var(--pink)' },
   { icon: 'code', title: 'Open source', body: 'MIT licensed and built on the Charm ecosystem. Fork it, theme it, make it your own.', accent: 'var(--yellow)' },
 ];
 
 const steps = [
   { n: '01', title: 'Install in one line', body: 'Run the installer or grab a release binary. Ghost lands on your PATH in seconds.', icon: 'download' },
-  { n: '02', title: 'Launch & pick a model', body: 'Type ghost to open the TUI, or ghost free to jump straight onto a free model.', icon: 'command' },
+  { n: '02', title: 'Launch & pick a model', body: 'Type ghost to open the TUI, or run ghost free to list current gateway models.', icon: 'command' },
   { n: '03', title: 'Build at the speed of thought', body: 'Chat, generate code, run commands, and resume sessions — all without leaving the terminal.', icon: 'terminal' },
 ];
 
-const freeModels = [
-  { name: 'Big Pickle', meta: 'OpenCode Zen', ctx: '200K', tag: 'stealth' },
-  { name: 'DeepSeek V4 Flash Free', meta: 'OpenCode Zen', ctx: '128K', tag: 'free' },
-  { name: 'Xiaomi MiMo V2.5 Free', meta: 'OpenCode Zen', ctx: '128K', tag: 'free' },
-  { name: 'Qwen 3.6 Plus Free', meta: 'OpenCode Zen', ctx: '128K', tag: 'free' },
-  { name: 'Nemotron 3 Super Free', meta: 'OpenCode Zen', ctx: '1M', tag: 'reason' },
-  { name: 'MiniMax M2.7 (thinking)', meta: 'OI VSCode', ctx: '200K', tag: 'reason' },
+const gateways = [
+  { name: 'OpenCode Zen', meta: 'Free routes · no key', catalog: 'Live catalog', tag: 'free', label: 'Free models' },
+  { name: 'Kilo Gateway', meta: 'Free routes · no key', catalog: 'Live catalog', tag: 'free', label: 'Free models' },
+  { name: 'OpenRouter', meta: 'Free models · API key', catalog: 'Live catalog', tag: 'free', label: 'Free models' },
+  { name: 'Google AI', meta: 'Free quota · API key', catalog: 'Live catalog', tag: 'quota', label: 'Free quota' },
+  { name: 'Cloudflare Workers AI', meta: 'Daily allocation · API key', catalog: 'Live catalog', tag: 'quota', label: 'Free quota' },
+  { name: 'Ollama', meta: 'Models installed locally', catalog: 'Local catalog', tag: 'local', label: 'Local' },
 ];
 
 const stats = [
-  { v: 6, suffix: '', label: 'Free models, no key' },
+  { v: 17, suffix: '', label: 'Gateway integrations' },
   { v: 3, suffix: '', label: 'Operating systems' },
   { v: 1, suffix: 'M', label: 'Max context tokens' },
   { v: 0, suffix: '$', label: 'Cost to start' },
@@ -54,13 +54,13 @@ const stats = [
   <section class="hero" data-hero>
     <div class="container hero-grid">
       <div class="hero-copy">
-        <span class="pill" data-hero-item><span class="dot-live"></span> v1 ready · 100% free models</span>
+        <span class="pill" data-hero-item><span class="dot-live"></span> v1 ready · live model catalogs</span>
         <h1 data-hero-item>
           The AI assistant that
           <span class="gradient-text">haunts your terminal.</span>
         </h1>
         <p class="lede" data-hero-item>
-          Ghost is a lightning-fast, beautiful command-line AI — powered by free models,
+          Ghost is a lightning-fast, beautiful command-line AI — powered by free model gateways,
           themeable to the bone, and ready the second you install it.
         </p>
         <div class="hero-cta" data-hero-item>
@@ -93,9 +93,10 @@ const stats = [
   <!-- ============================ PROVIDER STRIP ============================ -->
   <section class="strip">
     <div class="container">
-      <p class="strip-label">Powered by free, open model providers</p>
+      <p class="strip-label">Free and quota-based model gateways</p>
       <div class="strip-logos" data-reveal-group>
         <span class="strip-item" data-reveal><Icon name="sparkle" size={18} /> OpenCode Zen</span>
+        <span class="strip-item" data-reveal><Icon name="layers" size={18} /> Kilo</span>
         <span class="strip-item" data-reveal><Icon name="cpu" size={18} /> Nvidia NIM</span>
         <span class="strip-item" data-reveal><Icon name="code" size={18} /> OI VSCode</span>
         <span class="strip-item" data-reveal><Icon name="globe" size={18} /> Google Gemini</span>
@@ -190,26 +191,26 @@ const stats = [
   <section id="models" class="section-pad models-sec">
     <div class="container">
       <div class="section-head" data-reveal-group>
-        <span class="eyebrow" data-reveal>No key required</span>
-        <h2 data-reveal>Free models, <span class="gradient-text">ready on install</span>.</h2>
-        <p class="sub" data-reveal>These run the moment Ghost is installed. Add a key to unlock Nvidia NIM, Gemini, Groq, and more.</p>
+        <span class="eyebrow" data-reveal>Provider catalogs</span>
+        <h2 data-reveal>Find free models <span class="gradient-text">as they change</span>.</h2>
+        <p class="sub" data-reveal>Model IDs come from live provider catalogs. Some routes need an API key or stop when a quota runs out.</p>
       </div>
       <div class="grid-3" data-reveal-group>
-        {freeModels.map((m) => (
+        {gateways.map((m) => (
           <div class="card model-card" data-reveal>
             <div class="model-top">
               <span class="model-mark"><Icon name="cpu" size={18} /></span>
               <span class={`tag tag-${m.tag}`}>
-                {m.tag === 'reason' ? 'reasoning' : m.tag === 'stealth' ? 'stealth free' : 'free'}
+                {m.label}
               </span>
             </div>
             <h3>{m.name}</h3>
-            <p class="model-meta">{m.meta} <span class="ctx">{m.ctx} ctx</span></p>
+            <p class="model-meta">{m.meta} <span class="ctx">{m.catalog}</span></p>
           </div>
         ))}
       </div>
       <p class="models-foot" data-reveal>
-        <Icon name="plug" size={16} /> Plus Nvidia NIM, Google Gemini, Groq, Cerebras, GitHub Copilot &amp; OpenRouter with your own key.
+        <Icon name="plug" size={16} /> Plus Groq, Cerebras, NVIDIA NIM, AMD Radeon, Aion, Hugging Face, LLM7, OpenTyphoon, Nous Portal, and more.
       </p>
     </div>
   </section>
@@ -321,6 +322,8 @@ swadhinbiswas/Ghost/main/install.sh | bash
   .ctx { color: var(--purple); }
   .tag { font-family: var(--font-mono); font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; padding: .28rem .6rem; border-radius: 999px; white-space: nowrap; }
   .tag-free { background: rgba(80,250,123,.12); color: var(--green); border: 1px solid rgba(80,250,123,.28); }
+  .tag-quota { background: rgba(139,233,253,.12); color: var(--cyan); border: 1px solid rgba(139,233,253,.28); }
+  .tag-local { background: rgba(189,147,249,.12); color: var(--purple); border: 1px solid rgba(189,147,249,.28); }
   .tag-stealth { background: rgba(255,184,108,.12); color: var(--orange); border: 1px solid rgba(255,184,108,.28); }
   .tag-reason { background: rgba(139,233,253,.12); color: var(--cyan); border: 1px solid rgba(139,233,253,.28); }
   .models-foot { text-align: center; margin-top: 2.4rem; color: var(--fg-mute); font-size: .92rem; display: inline-flex; align-items: center; gap: .5rem; width: 100%; justify-content: center; }

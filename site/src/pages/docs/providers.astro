@@ -1,63 +1,53 @@
 ---
 import DocsLayout from '../../layouts/DocsLayout.astro';
 
-const free = [
-  { provider: 'OpenCode Zen', model: 'Big Pickle', ctx: '200K', note: 'Stealth free' },
-  { provider: 'OpenCode Zen', model: 'DeepSeek V4 Flash Free', ctx: '128K', note: 'Free' },
-  { provider: 'OpenCode Zen', model: 'Xiaomi MiMo V2.5 Free', ctx: '128K', note: 'Free' },
-  { provider: 'OpenCode Zen', model: 'Qwen 3.6 Plus Free', ctx: '128K', note: 'Free' },
-  { provider: 'OpenCode Zen', model: 'Nemotron 3 Super Free', ctx: '1M', note: 'Reasoning' },
-  { provider: 'OI VSCode Server', model: 'MiniMax M2.7 (thinking)', ctx: '200K', note: 'Reasoning' },
-];
-
-const nim = [
-  'Nemotron 3 Ultra 550B', 'DeepSeek V4 Pro', 'DeepSeek V4 Flash', 'GLM 5.1',
-  'Kimi K2.6', 'Qwen 3.5 (122B / 397B)', 'Mistral Medium 3.5 128B',
-  'Step 3.7 Flash', 'MiniMax M2.7', 'DiffusionGemma 26B A4B IT',
+const providers = [
+  { name: 'OpenCode Zen', access: 'Free model routes', setup: 'No key' },
+  { name: 'Kilo Gateway', access: 'Free model routes', setup: 'No key' },
+  { name: 'OI VSCode Server', access: 'Community endpoint', setup: 'No key' },
+  { name: 'Ollama', access: 'Models installed locally', setup: 'Run Ollama' },
+  { name: 'OpenRouter', access: 'Free models and free router', setup: 'ghost login openrouter' },
+  { name: 'Groq', access: 'Free developer quota', setup: 'ghost login groq' },
+  { name: 'Google AI', access: 'Models with a free API tier', setup: 'ghost login googleai' },
+  { name: 'Cloudflare Workers AI', access: 'Daily free allocation', setup: 'Set CLOUDFLARE_ACCOUNT_ID, then ghost login cloudflare' },
+  { name: 'Cohere', access: 'Trial key quota', setup: 'ghost login cohere' },
+  { name: 'NVIDIA NIM', access: 'Developer API access', setup: 'ghost login nvidia-nim' },
+  { name: 'AMD Radeon Cloud', access: 'Free Token Factory quota', setup: 'ghost login amd-radeon' },
+  { name: 'Aion Labs', access: 'Free account quota', setup: 'ghost login aion' },
+  { name: 'Hugging Face', access: 'Monthly account credits', setup: 'ghost login huggingface' },
+  { name: 'LLM7', access: 'Free daily token quota', setup: 'ghost login llm7' },
+  { name: 'OpenTyphoon', access: 'Free research API', setup: 'ghost login typhoon' },
+  { name: 'Nous Portal', access: 'Models with zero-price routes', setup: 'ghost login nous-portal' },
+  { name: 'Cerebras', access: 'One-time promotional credit', setup: 'ghost login cerebras' },
 ];
 ---
 
-<DocsLayout title="Providers & Models" description="What ships free and how to unlock more.">
+<DocsLayout title="Providers & Models" description="Live model catalogs and provider setup.">
   <p>
-    Ghost groups models by provider. Some providers are free and need no credentials; others are
-    unlocked by adding an API key with <code>ghost login</code> or an environment variable.
+    Ghost refreshes model lists from provider APIs and keeps a local cache for offline starts.
+    Use <code>ghost free</code> to see what is available to your configured accounts.
   </p>
 
-  <h2>Free — no key required</h2>
-  <p>These work the moment you install Ghost:</p>
+  <h2>Provider access</h2>
+  <p>Free access can mean a zero-price model, a usage quota, or a limited credit balance. Check each provider's limits and terms.</p>
   <table class="docs-table">
-    <thead><tr><th>Provider</th><th>Model</th><th>Context</th><th>Note</th></tr></thead>
+    <thead><tr><th>Provider</th><th>Free access</th><th>Setup</th></tr></thead>
     <tbody>
-      {free.map((f) => (
-        <tr><td>{f.provider}</td><td><code>{f.model}</code></td><td>{f.ctx}</td><td>{f.note}</td></tr>
+      {providers.map((provider) => (
+        <tr><td>{provider.name}</td><td>{provider.access}</td><td><code>{provider.setup}</code></td></tr>
       ))}
     </tbody>
   </table>
 
-  <h2>Nvidia NIM — set an API key</h2>
-  <p>Export your key to enable the Nvidia NIM provider:</p>
-  <pre class="block"><code>export NVIDIA_API_KEY="your-key-here"</code></pre>
-  <p>Models available through NIM include:</p>
-  <ul>
-    {nim.map((m) => <li><code>{m}</code></li>)}
-  </ul>
-
-  <h2>Catwalk providers — bring your own key</h2>
-  <p>
-    Ghost connects to the <a href="https://github.com/charmbracelet/catwalk" target="_blank" rel="noopener">Catwalk</a>
-    registry for additional providers. Run <code>ghost login</code> to add credentials for:
-  </p>
-  <ul>
-    <li>Google Gemini</li>
-    <li>Groq</li>
-    <li>Cerebras</li>
-    <li>GitHub Copilot</li>
-    <li>OpenRouter</li>
-  </ul>
+  <h2>Add a provider key</h2>
+  <p>Run <code>ghost login</code> with the provider ID. Ghost prompts for the key without echoing it and saves it in your global config.</p>
+  <pre class="block"><code>ghost login openrouter
+ghost login nvidia-nim
+ghost free</code></pre>
+  <p>Cloudflare also needs the account ID in <code>CLOUDFLARE_ACCOUNT_ID</code>. Set it in the environment before launching Ghost.</p>
+  <p>See the <a href="https://github.com/swadhinbiswas/Ghost/blob/main/docs/free-model-providers.md">provider guide</a> for current limits, terms, and source links.</p>
 
   <div class="callout warn">
-    Model availability is curated by each provider and can change over time. The Nvidia NIM
-    catalog is fetched from a remotely-updatable JSON source on startup-refresh; run
-    <code>ghost update-providers</code> to pull the latest list.
+    Model lists, free quotas, and account eligibility change. Some providers may switch to paid use after a quota or credit runs out. Review the provider's current terms before use.
   </div>
 </DocsLayout>

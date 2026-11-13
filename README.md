@@ -33,27 +33,26 @@ Ghost ships pre-configured with generous **free** AI providers, so you can get w
 - **Free out of the box.** Pre-wired to free providers — no subscription, no API key required to get started.
 - **Cross-platform.** A single native Go binary for Linux, macOS, and Windows (amd64 + arm64).
 - **Beautiful TUI.** A responsive, themeable terminal interface (Dracula theme included).
-- **Bring your own keys.** Optionally connect paid/keyed providers like Google Gemini, Groq, Cerebras, GitHub Copilot, and OpenRouter through the built-in [Catwalk](https://github.com/charmbracelet/catwalk) registry.
+- **Connect more gateways.** Add a provider key with `ghost login <provider>` to use its free quota, free models, or credits.
 
 <br>
 
 ## 🧠 Models out of the box
 
-These providers work with **no API key required**:
+These providers can be used without entering an API key:
 
 | Provider | Models | Notes |
 | --- | --- | --- |
-| **OpenCode Zen** | `Big Pickle`, `DeepSeek V4 Flash Free`, `Xiaomi MiMo V2.5 Free`, `Qwen 3.6 Plus Free`, `Nemotron 3 Super Free` | Free tier, no key needed |
-| **OI VSCode Server** | `MiniMax M2.7 (thinking)` | Free, no key needed |
+| **OpenCode Zen** | Current free models from the live catalog | No key needed |
+| **Kilo Gateway** | Current `:free` models and `kilo-auto/free` | Free models allow anonymous requests |
+| **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
+| **Ollama** | Models installed on your machine | Local inference |
 
 Add a key to unlock more:
 
-| Provider | How to enable | Example models |
-| --- | --- | --- |
-| **Nvidia NIM** | set `NVIDIA_API_KEY` | `Nemotron 3 Ultra`, `DeepSeek V4 Pro/Flash`, `GLM 5.1`, `Kimi K2.6`, `Qwen 3.5`, `Mistral Medium 3.5`, `Step 3.7 Flash`, `MiniMax M2.7`, `DiffusionGemma` |
-| **Google Gemini / Groq / Cerebras / Copilot / OpenRouter** | `ghost login` (via Catwalk registry) | provider-specific |
+Use `ghost free` to see current models from OpenRouter, Kilo, OpenCode Zen, Groq, Cerebras, Google AI, Cloudflare, Cohere, NVIDIA NIM, AMD Radeon Cloud, Aion Labs, Hugging Face, LLM7, OpenTyphoon, and Nous Portal. Add a provider key with `ghost login <provider>`.
 
-> Model availability is curated by each provider and may change over time.
+See [Free model providers](docs/free-model-providers.md) for setup steps, current limits, and data-use terms.
 
 <br>
 
@@ -103,7 +102,7 @@ ghost run "Write a python script to parse a CSV file"
 Other handy commands:
 
 ```bash
-ghost free                 # pick a free model to chat with
+ghost free                 # list free and quota-based model catalogs
 ghost models               # list available models
 ghost login                # add credentials for keyed providers
 ghost theme                # switch the TUI theme
@@ -122,18 +121,17 @@ Ghost reads JSON config from standard locations (`$XDG_CONFIG_HOME/ghost/ghost.j
 | --- | --- |
 | `GHOST_DISABLE_PROVIDER_AUTO_UPDATE` | Disable automatic provider/model refresh |
 | `GHOST_DISABLE_DEFAULT_PROVIDERS` | Skip all built-in providers (BYO only) |
-| `NVIDIA_API_KEY` | Enable the Nvidia NIM provider |
-| `GHOST_NVIDIA_NIM_MODELS_URL` | Override the remote Nvidia NIM model catalog URL |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Workers AI account used for model discovery and inference |
 | `GHOST_OPENCODE_MODELS_URL` | Override the OpenCode Zen models endpoint |
 
-On startup, Ghost refreshes the OpenCode Zen and Nvidia NIM model lists in the background (non-blocking) and caches them for the next session. This honors `GHOST_DISABLE_PROVIDER_AUTO_UPDATE`. The Nvidia NIM catalog is sourced from [`nvidia_nim_models.json`](nvidia_nim_models.json) at the repo root and fetched from its GitHub raw URL, so the model list can be updated without a new release. Run `ghost update-providers` to refresh on demand.
+Ghost refreshes available live model catalogs at startup and uses its cache when a provider is offline. Run `ghost free` to browse the latest models available to the configured accounts.
 
 <br>
 
 ## 🙏 Acknowledgments
 
 - **UI foundation:** [Crush](https://github.com/charmbracelet/crush) and the [Charm](https://charm.sh/) ecosystem (`lipgloss`, `bubbletea`, `catwalk`).
-- **Free providers:** OpenCode Zen, the OI VSCode community, Nvidia, and everyone democratizing access to great AI models.
+- **Free providers:** OpenCode Zen, Kilo, the OI VSCode community, and the providers listed in the [gateway guide](docs/free-model-providers.md).
 
 <br>
 
