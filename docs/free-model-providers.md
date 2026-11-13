@@ -6,7 +6,7 @@ Ghost loads model catalogs from provider APIs and keeps a local cache for offlin
 
 | Provider ID | Access | Setup |
 | --- | --- | --- |
-| `auto-free` | Tries Kilo and OI VSCode routes, free OpenRouter routes when configured, then local Ollama models | No setup; provider keys and Ollama are optional |
+| `auto-free` | Tries remote Kilo and OI VSCode routes, then free OpenRouter routes when configured | No setup; OpenRouter key is optional |
 | `openrouter` | Free models marked `:free`, plus the `openrouter/free` router | `ghost login openrouter` |
 | `kilo` | Free models marked `:free`; anonymous requests are allowed. `kilo-auto/free` is a stable free route | No key required; `ghost login kilo` is optional |
 | `oi-vscode` | Community-hosted endpoint | No key required; availability is not guaranteed |
@@ -46,7 +46,7 @@ ghost free use auto-free/auto:free
 
 Model IDs can contain `/`, so the command stores the model's full ID with the provider selected from the live catalog.
 
-`AUTO:FREE` tries each eligible route until one responds. It retries stream failures only before the model starts returning text or tool calls, so it does not duplicate partial answers or tool requests. OpenRouter routes are included only when an OpenRouter key is configured; Ollama routes are included only for models installed locally.
+`AUTO:FREE` tries each eligible remote route until one responds. It retries stream failures only before the model starts returning text or tool calls, so it does not duplicate partial answers or tool requests. OpenRouter routes are included only when an OpenRouter key is configured. Local Ollama models are not part of this fallback.
 
 ## What the free labels mean
 

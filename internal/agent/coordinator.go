@@ -793,8 +793,6 @@ func isFreeFallbackModel(providerID, modelID string) bool {
 		return modelID != ""
 	case "openrouter":
 		return modelID == "openrouter/free" || strings.HasSuffix(modelID, ":free")
-	case "ollama-local":
-		return modelID != ""
 	default:
 		return false
 	}
@@ -808,8 +806,6 @@ func freeProviderRank(providerID string) int {
 		return 1
 	case "openrouter":
 		return 2
-	case "ollama-local":
-		return 3
 	default:
 		return 3
 	}

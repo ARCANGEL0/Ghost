@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `AUTO:FREE`, which tries Kilo and OI VSCode routes, configured OpenRouter free routes, and local Ollama models.
+- `AUTO:FREE`, which tries remote Kilo and OI VSCode routes, plus configured OpenRouter free routes.
 - Live model catalogs for OpenRouter, Kilo, NVIDIA NIM, Groq,
   Cerebras, Google AI, Cloudflare, Cohere, AMD Radeon Cloud, Aion Labs, Hugging
   Face, LLM7, OpenTyphoon, Nous Portal, and local Ollama, with cached fallback
