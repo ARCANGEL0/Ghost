@@ -47,8 +47,11 @@ These providers can be used without entering an API key:
 | **Kilo Gateway** | Current `:free` models and `kilo-auto/free` | Free models allow anonymous requests |
 | **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
 | **Ollama** | Models installed on your machine | Local inference |
+| **Codex CLI** | GPT-6.1 Sol through the Codex app-server | Requires Codex CLI and account sign-in |
 
 Import a Claude Code or Codex conversation into a new Ghost session with `/import --claude <session-id>` or `/import --codex <session-id>`. `/resume` accepts the same flags. See [session import](docs/session-import.md).
+
+Sign in to Codex with `ghost login codex`. Ghost uses the installed Codex CLI app-server for account-backed turns and resumes imported Codex threads when you continue with the Codex model.
 
 Add a key to unlock more:
 

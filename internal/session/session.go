@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -61,6 +62,11 @@ type Session struct {
 	UpdatedAt        int64
 }
 
+type ExternalSession struct {
+	Provider string
+	ID       string
+}
+
 type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
@@ -74,6 +80,8 @@ type Service interface {
 	UpdateTitleAndUsage(ctx context.Context, sessionID, title string, promptTokens, completionTokens int64, cost float64) error
 	SetCleanupFunc(fn func(string)) // optional callback to clean up resources (e.g., collab rooms)
 	SetShared(ctx context.Context, sessionID string, shared bool) error
+	SetExternalSession(ctx context.Context, sessionID, provider, externalID string) error
+	ExternalSession(ctx context.Context, sessionID string) (ExternalSession, bool, error)
 	Rename(ctx context.Context, id string, title string) error
 	Delete(ctx context.Context, id string) error
 
@@ -245,6 +253,36 @@ func (s *service) SetShared(ctx context.Context, sessionID string, shared bool) 
 	}
 	s.Publish(pubsub.UpdatedEvent, s.fromDBItem(updated))
 	return nil
+}
+
+func (s *service) SetExternalSession(ctx context.Context, sessionID, provider, externalID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO session_external_links (session_id, provider, external_id)
+		VALUES (?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			provider = excluded.provider,
+			external_id = excluded.external_id`,
+		sessionID, provider, externalID,
+	)
+	if err != nil {
+		return fmt.Errorf("save external session link: %w", err)
+	}
+	return nil
+}
+
+func (s *service) ExternalSession(ctx context.Context, sessionID string) (ExternalSession, bool, error) {
+	var link ExternalSession
+	err := s.db.QueryRowContext(ctx, `
+		SELECT provider, external_id
+		FROM session_external_links
+		WHERE session_id = ?`, sessionID).Scan(&link.Provider, &link.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ExternalSession{}, false, nil
+	}
+	if err != nil {
+		return ExternalSession{}, false, fmt.Errorf("read external session link: %w", err)
+	}
+	return link, true, nil
 }
 
 // UpdateTitleAndUsage updates only the title and usage fields atomically.

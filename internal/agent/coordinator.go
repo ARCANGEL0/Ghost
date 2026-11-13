@@ -1033,6 +1033,14 @@ func (c *coordinator) isAnthropicThinking(model config.SelectedModel) bool {
 }
 
 func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model config.SelectedModel, isSubAgent bool) (fantasy.Provider, error) {
+	if providerCfg.ID == "codex" {
+		return codexProvider{
+			permissions: c.permissions,
+			sessions:    c.sessions,
+			workingDir:  c.cfg.WorkingDir(),
+		}, nil
+	}
+
 	headers := maps.Clone(providerCfg.ExtraHeaders)
 	if headers == nil {
 		headers = make(map[string]string)

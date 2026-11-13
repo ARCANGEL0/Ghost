@@ -5,6 +5,7 @@ import "charm.land/catwalk/pkg/catwalk"
 func AllFreeProviders() []catwalk.Provider {
 	return []catwalk.Provider{
 		AutoFreeProvider,
+		CodexProvider,
 		OpenRouterFreeProvider,
 		KiloProvider,
 		OIVSCodeProvider,

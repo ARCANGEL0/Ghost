@@ -3939,6 +3939,10 @@ func (m *UI) importSession(args string) tea.Cmd {
 		if err != nil {
 			return util.ReportError(err)()
 		}
+		if err := m.com.App.Sessions.SetExternalSession(ctx, newSession.ID, providerID, sessionID); err != nil {
+			_ = m.com.App.Sessions.Delete(ctx, newSession.ID)
+			return util.ReportError(err)()
+		}
 		for _, item := range imported {
 			role := message.User
 			parts := []message.ContentPart{message.TextContent{Text: item.Text}}

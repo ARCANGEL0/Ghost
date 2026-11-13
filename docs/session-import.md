@@ -16,5 +16,6 @@ Ghost reads Claude Code transcripts from `~/.claude/projects` and Codex
 transcripts from `~/.codex/sessions`. Set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`
 before starting Ghost if either tool uses a custom config path.
 
-Import creates a Ghost session with the transcript. Choose any configured Ghost
-model to continue it.
+Import creates a Ghost session with the transcript. Other Ghost models continue
+from the imported messages. When you choose the Codex model, Ghost resumes the
+linked Codex thread through the installed Codex CLI.
