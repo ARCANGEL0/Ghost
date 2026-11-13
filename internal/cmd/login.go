@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 
 	"charm.land/lipgloss/v2"
@@ -25,14 +26,17 @@ var loginCmd = &cobra.Command{
 	Short:   "Login Ghost to a platform or save an API key",
 	Long: `Login Ghost to a specified platform or save an API key for any AI provider.
 The platform or provider ID should be provided as an argument.
-If the provider uses OAuth (like hyper or copilot), it will initiate the OAuth flow.
-Otherwise, it will securely prompt you for your API key and save it to your local configuration store.`,
+Hyper and GitHub Copilot use OAuth sign-in. Codex uses its official CLI device
+flow. Other providers securely prompt for an API key and save it locally.`,
 	Example: `
 # Authenticate with Charm Hyper
 Ghost login
 
 # Authenticate with GitHub Copilot
 Ghost login copilot
+
+# Sign in to Codex with a device code
+Ghost login codex
 
 # Save a gateway API key
 Ghost login openrouter
@@ -42,6 +46,7 @@ Ghost login nvidia-nim
 		"hyper",
 		"copilot",
 		"github-copilot",
+		"codex",
 		"nvidia-nim",
 		"openrouter",
 		"kilo",
@@ -77,10 +82,27 @@ Ghost login nvidia-nim
 			return loginHyper(app.Store())
 		case "copilot", "github", "github-copilot":
 			return loginCopilot(app.Store())
+		case "codex":
+			return loginCodex()
 		default:
 			return loginAPIKey(app.Store(), provider)
 		}
 	},
+}
+
+func loginCodex() error {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return fmt.Errorf("Codex CLI is required for device sign-in: %w", err)
+	}
+
+	cmd := exec.Command("codex", "login", "--device-auth")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("Codex device sign-in failed: %w", err)
+	}
+	return nil
 }
 
 func loginHyper(cfg *config.ConfigStore) error {

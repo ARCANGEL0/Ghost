@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `/import --claude <session-id>` and `/import --codex <session-id>` to bring coding-agent transcripts into a new Ghost session.
+- `ghost login codex` to sign in through the Codex CLI device-code flow.
 - `AUTO:FREE`, which tries remote Kilo and OI VSCode routes, plus configured OpenRouter free routes.
 - Live model catalogs for OpenRouter, Kilo, NVIDIA NIM, Groq,
   Cerebras, Google AI, Cloudflare, Cohere, AMD Radeon Cloud, Aion Labs, Hugging

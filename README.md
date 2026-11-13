@@ -107,6 +107,7 @@ Other handy commands:
 ghost free                 # list free and quota-based model catalogs
 ghost models               # list available models
 ghost login                # add credentials for keyed providers
+ghost login codex          # sign in to Codex with a device code
 ghost theme                # switch the TUI theme
 ghost update-providers     # refresh the provider registry
 ghost session              # manage saved sessions
