@@ -108,6 +108,12 @@ func (m *APIKeyInput) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
 	case ActionChangeAPIKeyState:
 		m.state = msg.State
+		if msg.Provider != nil {
+			m.provider = *msg.Provider
+		}
+		if msg.Model != nil {
+			m.model = *msg.Model
+		}
 		switch m.state {
 		case APIKeyInputStateVerifying:
 			cmd := tea.Batch(m.spinner.Tick, m.verifyAPIKey)
@@ -306,9 +312,24 @@ func (m *APIKeyInput) verifyAPIKey() tea.Msg {
 	}
 
 	if err == nil {
-		return ActionChangeAPIKeyState{APIKeyInputStateVerified}
+		provider, catalogErr := config.FetchProviderCatalog(m.provider, m.input.Value())
+		if catalogErr == nil && len(provider.Models) > 0 {
+			model := m.model
+			found := false
+			for _, available := range provider.Models {
+				if available.ID == model.Model {
+					found = true
+					break
+				}
+			}
+			if !found {
+				model.Model = provider.DefaultLargeModelID
+			}
+			return ActionChangeAPIKeyState{State: APIKeyInputStateVerified, Provider: &provider, Model: &model}
+		}
+		return ActionChangeAPIKeyState{State: APIKeyInputStateVerified}
 	}
-	return ActionChangeAPIKeyState{APIKeyInputStateError}
+	return ActionChangeAPIKeyState{State: APIKeyInputStateError}
 }
 
 func (m *APIKeyInput) saveKeyAndContinue() Action {

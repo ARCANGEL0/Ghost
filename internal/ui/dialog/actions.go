@@ -96,7 +96,9 @@ type (
 // Messages for API key input dialog.
 type (
 	ActionChangeAPIKeyState struct {
-		State APIKeyInputState
+		State    APIKeyInputState
+		Provider *catwalk.Provider
+		Model    *config.SelectedModel
 	}
 )
 

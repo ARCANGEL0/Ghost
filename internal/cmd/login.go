@@ -33,12 +33,29 @@ Ghost login
 
 # Authenticate with GitHub Copilot
 Ghost login copilot
+
+# Save a gateway API key
+Ghost login openrouter
+Ghost login nvidia-nim
   `,
 	ValidArgs: []cobra.Completion{
 		"hyper",
 		"copilot",
 		"github-copilot",
 		"nvidia-nim",
+		"openrouter",
+		"kilo",
+		"groq",
+		"cerebras",
+		"googleai",
+		"cloudflare",
+		"cohere",
+		"amd-radeon",
+		"aion",
+		"huggingface",
+		"llm7",
+		"typhoon",
+		"nous-portal",
 		"openai",
 		"anthropic",
 		"google",
