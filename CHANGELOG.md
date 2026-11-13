@@ -8,11 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Live model catalogs for OpenRouter, Kilo, OpenCode Zen, NVIDIA NIM, Groq,
+- Live model catalogs for OpenRouter, Kilo, NVIDIA NIM, Groq,
   Cerebras, Google AI, Cloudflare, Cohere, AMD Radeon Cloud, Aion Labs, Hugging
   Face, LLM7, OpenTyphoon, Nous Portal, and local Ollama, with cached fallback
   when a refresh fails.
-- `GHOST_OPENCODE_MODELS_URL` override for the OpenCode Zen models endpoint.
 - `ghost login <provider>` setup for API-key gateways and `ghost free` live model
   discovery.
 - Astro-based website and documentation under `site/` (built with Bun).
@@ -28,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standardized the GitHub repository reference to `swadhinbiswas/Ghost`.
 
 ### Fixed
+- Keep Kilo Auto Free in the model picker when its live catalog is unavailable.
+- Remove OpenCode-only free models from Ghost's hosted gateway list.
 - Repository hygiene: added `.gitignore` and removed committed build artifacts,
   tooling archives, and throwaway scripts.
 

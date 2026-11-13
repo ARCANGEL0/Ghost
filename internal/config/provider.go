@@ -128,8 +128,6 @@ func UpdateHyper(pathOrURL string) error {
 var allowedProviders = map[string]bool{
 	"nvidia-nim":   true,
 	"oi-vscode":    true,
-	"opencode":     true,
-	"opencode-zen": true,
 	"openrouter":   true,
 	"kilo":         true,
 	"groq":         true,
@@ -161,6 +159,11 @@ func mergeProviders(dst, src []catwalk.Provider) []catwalk.Provider {
 	}
 	for _, p := range src {
 		if i, ok := index[string(p.ID)]; ok {
+			if len(p.Models) == 0 && len(dst[i].Models) > 0 {
+				p.Models = dst[i].Models
+				p.DefaultLargeModelID = cmp.Or(p.DefaultLargeModelID, dst[i].DefaultLargeModelID)
+				p.DefaultSmallModelID = cmp.Or(p.DefaultSmallModelID, dst[i].DefaultSmallModelID)
+			}
 			dst[i] = p
 		} else {
 			dst = append(dst, p)

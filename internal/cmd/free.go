@@ -120,7 +120,7 @@ func useFreeModel(w io.Writer, id string, catalog []catwalk.Provider) error {
 func createFreeCombo(w io.Writer, name string) error {
 	fmt.Fprintf(w, "Free fallback suggestion %q:\n", name)
 	fmt.Fprintln(w, "Use these provider/model IDs in your routing setup:")
-	fmt.Fprintln(w, "kilo/kilo-auto/free -> opencode-zen/big-pickle -> openrouter/openrouter/free")
+	fmt.Fprintln(w, "kilo/kilo-auto/free -> openrouter/openrouter/free")
 	return nil
 }
 
@@ -128,8 +128,7 @@ func printFreeInstall(w io.Writer) error {
 	fmt.Fprintln(w, "Browse current free models with: ghost free")
 	fmt.Fprintln(w, "Use one with: ghost free use <provider/model>")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Keyless hosted gateways include OpenCode Zen and Kilo Free.")
-	fmt.Fprintln(w, "Start Ollama to add models installed on this machine.")
+	fmt.Fprintln(w, "Kilo's free models need no API key. Start Ollama for local models.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "For a gateway API key, run: ghost login <provider>")
 	fmt.Fprintln(w, "Keyed gateways include OpenRouter, Groq, Cerebras, Google AI, Cloudflare, Cohere, AMD Radeon, Aion, Hugging Face, LLM7, OpenTyphoon, Nous Portal, and NVIDIA NIM.")
@@ -144,8 +143,6 @@ func isFreeCatalogModel(provider string, model catwalk.Model) bool {
 		return strings.HasSuffix(model.ID, ":free") || model.ID == "openrouter/free"
 	case "kilo":
 		return strings.HasSuffix(model.ID, ":free") || model.ID == "kilo-auto/free"
-	case "opencode", "opencode-zen":
-		return model.ID == "big-pickle" || strings.HasSuffix(model.ID, "-free")
 	case "cloudflare":
 		id := strings.ToLower(model.ID)
 		return !strings.Contains(id, "kimi-k2") && !strings.Contains(id, "glm-5.") && !strings.Contains(id, "deepseek-v4-")

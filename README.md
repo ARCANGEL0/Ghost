@@ -43,14 +43,13 @@ These providers can be used without entering an API key:
 
 | Provider | Models | Notes |
 | --- | --- | --- |
-| **OpenCode Zen** | Current free models from the live catalog | No key needed |
 | **Kilo Gateway** | Current `:free` models and `kilo-auto/free` | Free models allow anonymous requests |
 | **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
 | **Ollama** | Models installed on your machine | Local inference |
 
 Add a key to unlock more:
 
-Use `ghost free` to see current models from OpenRouter, Kilo, OpenCode Zen, Groq, Cerebras, Google AI, Cloudflare, Cohere, NVIDIA NIM, AMD Radeon Cloud, Aion Labs, Hugging Face, LLM7, OpenTyphoon, and Nous Portal. Add a provider key with `ghost login <provider>`.
+Use `ghost free` to see current models from OpenRouter, Kilo, Groq, Cerebras, Google AI, Cloudflare, Cohere, NVIDIA NIM, AMD Radeon Cloud, Aion Labs, Hugging Face, LLM7, OpenTyphoon, and Nous Portal. Add a provider key with `ghost login <provider>`.
 
 See [Free model providers](docs/free-model-providers.md) for setup steps, current limits, and data-use terms.
 
@@ -122,7 +121,6 @@ Ghost reads JSON config from standard locations (`$XDG_CONFIG_HOME/ghost/ghost.j
 | `GHOST_DISABLE_PROVIDER_AUTO_UPDATE` | Disable automatic provider/model refresh |
 | `GHOST_DISABLE_DEFAULT_PROVIDERS` | Skip all built-in providers (BYO only) |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Workers AI account used for model discovery and inference |
-| `GHOST_OPENCODE_MODELS_URL` | Override the OpenCode Zen models endpoint |
 
 Ghost refreshes available live model catalogs at startup and uses its cache when a provider is offline. Run `ghost free` to browse the latest models available to the configured accounts.
 
@@ -131,7 +129,7 @@ Ghost refreshes available live model catalogs at startup and uses its cache when
 ## 🙏 Acknowledgments
 
 - **UI foundation:** [Crush](https://github.com/charmbracelet/crush) and the [Charm](https://charm.sh/) ecosystem (`lipgloss`, `bubbletea`, `catwalk`).
-- **Free providers:** OpenCode Zen, Kilo, the OI VSCode community, and the providers listed in the [gateway guide](docs/free-model-providers.md).
+- **Free providers:** Kilo, the OI VSCode community, and the providers listed in the [gateway guide](docs/free-model-providers.md).
 
 <br>
 

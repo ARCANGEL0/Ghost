@@ -6,7 +6,6 @@ func AllFreeProviders() []catwalk.Provider {
 	return []catwalk.Provider{
 		OpenRouterFreeProvider,
 		KiloProvider,
-		OpenCodeZenProvider,
 		OIVSCodeProvider,
 		GroqProvider,
 		CerebrasProvider,
@@ -39,7 +38,7 @@ const (
 
 func ProviderTier(id string) Tier {
 	switch id {
-	case "opencode", "opencode-zen", "openrouter", "kilo", "oi-vscode", "amd-radeon", "nous-portal":
+	case "openrouter", "kilo", "oi-vscode", "amd-radeon", "nous-portal":
 		return TierFree
 	case "ollama-local":
 		return TierLocal

@@ -1,15 +1,12 @@
 package config
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,185 +18,6 @@ import (
 
 // httpClient is reused across dynamic fetches.
 var httpClient = &http.Client{Timeout: 15 * time.Second}
-
-// openCodeModelsResponse matches the OpenCode /models endpoint.
-type openCodeModelsResponse struct {
-	Object string `json:"object"`
-	Data   []struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
-	} `json:"data"`
-}
-
-var openCodeLargeModelPreferences = []string{
-	"big-pickle",
-}
-
-var openCodeSmallModelPreferences = []string{
-	"deepseek-v4-flash-free",
-	"mimo-v2.5-free",
-	"qwen3.6-plus-free",
-	"north-mini-code-free",
-}
-
-var openCodeDisplayNameOverrides = map[string]string{
-	"big-pickle":             "Big Pickle",
-	"deepseek-v4-flash-free": "DeepSeek V4 Flash Free",
-	"mimo-v2.5-free":         "Xiaomi MiMo V2.5 Free",
-	"qwen3.6-plus-free":      "Qwen 3.6 Plus Free",
-	"minimax-m3-free":        "MiniMax M3 Free",
-	"nemotron-3-ultra-free":  "Nemotron 3 Ultra Free",
-	"north-mini-code-free":   "North Mini Code Free",
-}
-
-// isOpenCodeFreeModel reports whether an OpenCode Zen model ID is free.
-// Free models are suffixed "-free"; "big-pickle" is a special stealth free model.
-func isOpenCodeFreeModel(id string) bool {
-	return id == "big-pickle" || strings.HasSuffix(id, "-free")
-}
-
-// openCodeModelsURL is the OpenCode Zen model list endpoint.
-const openCodeModelsURL = "https://opencode.ai/zen/v1/models"
-
-// openCodeModelsEndpoint returns the configured OpenCode Zen models URL,
-// honoring the GHOST_OPENCODE_MODELS_URL override (used for testing/forks).
-func openCodeModelsEndpoint() string {
-	if v := strings.TrimSpace(os.Getenv("GHOST_OPENCODE_MODELS_URL")); v != "" {
-		return v
-	}
-	return openCodeModelsURL
-}
-
-// fetchOpenCodeModels returns the models exposed by the OpenCode Zen model list.
-func fetchOpenCodeModels() ([]catwalk.Model, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, openCodeModelsEndpoint(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("opencode: create request: %w", err)
-	}
-	req.Header.Set("User-Agent", "OpenCode/1.0.0")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("opencode: fetch models: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("opencode: unexpected status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var parsed openCodeModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("opencode: decode response: %w", err)
-	}
-
-	var (
-		models []catwalk.Model
-		seen   = make(map[string]struct{})
-	)
-	for _, m := range parsed.Data {
-		if m.ID == "" {
-			continue
-		}
-		if !isOpenCodeFreeModel(m.ID) {
-			continue
-		}
-		if _, ok := seen[m.ID]; ok {
-			continue
-		}
-		seen[m.ID] = struct{}{}
-		models = append(models, catwalk.Model{
-			ID:               m.ID,
-			Name:             displayNameFromOpenCodeID(m.ID),
-			ContextWindow:    128000,
-			DefaultMaxTokens: 8192,
-		})
-	}
-
-	sortOpenCodeModels(models)
-	return models, nil
-}
-
-func sortOpenCodeModels(models []catwalk.Model) {
-	priority := func(id string) int {
-		for i, preferred := range append(openCodeLargeModelPreferences, openCodeSmallModelPreferences...) {
-			if id == preferred {
-				return i
-			}
-		}
-		if strings.Contains(id, "free") {
-			return len(openCodeLargeModelPreferences) + len(openCodeSmallModelPreferences)
-		}
-		return len(openCodeLargeModelPreferences) + len(openCodeSmallModelPreferences) + 1
-	}
-
-	sort.SliceStable(models, func(i, j int) bool {
-		pi := priority(models[i].ID)
-		pj := priority(models[j].ID)
-		if pi != pj {
-			return pi < pj
-		}
-		return models[i].ID < models[j].ID
-	})
-}
-
-func displayNameFromOpenCodeID(id string) string {
-	if name, ok := openCodeDisplayNameOverrides[id]; ok {
-		return name
-	}
-	return displayNameFromID(id)
-}
-
-func pickOpenCodeModelID(models []catwalk.Model, preferredIDs []string) string {
-	if len(models) == 0 {
-		return ""
-	}
-
-	lookup := make(map[string]struct{}, len(models))
-	for _, model := range models {
-		lookup[model.ID] = struct{}{}
-	}
-	for _, preferredID := range preferredIDs {
-		if _, ok := lookup[preferredID]; ok {
-			return preferredID
-		}
-	}
-
-	return models[0].ID
-}
-
-func pickOpenCodeSmallModelID(models []catwalk.Model, largeModelID string) string {
-	if len(models) == 0 {
-		return ""
-	}
-
-	lookup := make(map[string]struct{}, len(models))
-	for _, model := range models {
-		lookup[model.ID] = struct{}{}
-	}
-	for _, preferredID := range openCodeSmallModelPreferences {
-		if preferredID == largeModelID {
-			continue
-		}
-		if _, ok := lookup[preferredID]; ok {
-			return preferredID
-		}
-	}
-
-	for _, model := range models {
-		if model.ID != largeModelID {
-			return model.ID
-		}
-	}
-
-	return largeModelID
-}
 
 // displayNameFromID converts a model ID like "minimax-m2.5-free" into "MiniMax M2.5 Free".
 func displayNameFromID(id string) string {
@@ -290,7 +108,7 @@ func fetchFreshDynamicProviders(cfgs ...*Config) []catwalk.Provider {
 
 func hasLiveCatalog(id string) bool {
 	switch id {
-	case "opencode", "opencode-zen", "openrouter", "kilo", "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "aion", "huggingface", "llm7", "typhoon", "nous-portal", "ollama-local":
+	case "openrouter", "kilo", "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "aion", "huggingface", "llm7", "typhoon", "nous-portal", "ollama-local":
 		return true
 	default:
 		return false
@@ -331,8 +149,6 @@ func fetchProviderCatalog(provider catwalk.Provider, key string, cfg *Config) (c
 	var models []catwalk.Model
 	var err error
 	switch id {
-	case "opencode", "opencode-zen":
-		models, err = fetchOpenCodeModels()
 	case "nvidia-nim":
 		return fetchNvidiaNimProviderWithKey(key)
 	case "googleai":
@@ -374,10 +190,6 @@ func fetchProviderCatalog(provider catwalk.Provider, key string, cfg *Config) (c
 			}
 		case "kilo":
 			if !strings.HasSuffix(model.ID, ":free") && model.ID != "kilo-auto/free" {
-				continue
-			}
-		case "opencode", "opencode-zen":
-			if !isOpenCodeFreeModel(model.ID) {
 				continue
 			}
 		case "googleai":
@@ -423,9 +235,6 @@ func fetchProviderCatalog(provider catwalk.Provider, key string, cfg *Config) (c
 	}
 	if len(filtered) == 0 {
 		return catwalk.Provider{}, fmt.Errorf("catalog has no supported models")
-	}
-	if id == "opencode" || id == "opencode-zen" {
-		sortOpenCodeModels(filtered)
 	}
 	provider.Models = filtered
 	provider.DefaultLargeModelID = liveDefault(provider.DefaultLargeModelID, filtered)

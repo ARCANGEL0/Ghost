@@ -8,7 +8,6 @@ Ghost loads model catalogs from provider APIs and keeps a local cache for offlin
 | --- | --- | --- |
 | `openrouter` | Free models marked `:free`, plus the `openrouter/free` router | `ghost login openrouter` |
 | `kilo` | Free models marked `:free`; anonymous requests are allowed. `kilo-auto/free` is a stable free route | No key required; `ghost login kilo` is optional |
-| `opencode-zen` | Current models ending in `-free` and `big-pickle` | No key required |
 | `oi-vscode` | Community-hosted endpoint | No key required; availability is not guaranteed |
 | `groq` | Free developer tier; account and model rate limits apply | `ghost login groq` |
 | `cerebras` | One-time $5 promotional credit; a payment method is required, and credit expires after 30 days | `ghost login cerebras` |
@@ -59,7 +58,7 @@ The list command keeps these categories separate. Check the linked provider page
 
 - [OpenRouter's free model list](https://openrouter.ai/collections/free-models) updates as models change. `:free` variants are rate limited; the current published limits are 20 requests per minute and 50 per day on an unfunded account. Its `openrouter/free` model routes to an eligible free model.
 - [Kilo's live model catalog](https://kilo.ai/docs/gateway/models-and-providers) returns model IDs, context, features, and prices. Free models are available without authentication, with a published anonymous limit of 200 requests per hour per IP. The `kilo-auto/free` mapping can change server-side.
-- [OpenCode Zen](https://opencode.ai/product) publishes its current free model offering. Ghost reads its model endpoint on refresh and selects only the documented free IDs.
+- [OpenCode free models](https://opencode.ai/docs/console/harnesses) are restricted to the OpenCode client. OpenCode documents that other harnesses receive HTTP 403, so Ghost does not list these models as usable gateways.
 - [Google AI Studio pricing](https://ai.google.dev/gemini-api/docs/pricing) shows which Gemini models have a free API tier. Google notes that free-tier content may be used to improve its products. The models API does not report free-tier eligibility, so Ghost matches its live model list against the current free-model IDs in code.
 - [Groq rate limits](https://console.groq.com/docs/rate-limits) and [supported models](https://console.groq.com/docs/models) are account- and model-specific. The live catalog shows what the API exposes; the free developer tier's limits apply to requests.
 - [Cerebras pricing](https://www.cerebras.ai/pricing) currently offers a one-time $5 promotional credit for development and evaluation. It requires a valid payment method, expires after 30 days, and does not enroll the account in paid usage.
@@ -81,5 +80,7 @@ Ghost does not list a provider just because its website or playground is free. F
 ## Catalog behavior
 
 At startup, Ghost merges built-in provider definitions with its cached catalogs, then refreshes providers that are available to the current account. Providers without a saved key are not queried until their key is available. A failed refresh leaves the last cached catalog in place. `GHOST_DISABLE_PROVIDER_AUTO_UPDATE` disables live refresh; `ghost update-providers` refreshes the general provider registry.
+
+Kilo's `kilo-auto/free` route remains available in the model picker if the live model catalog cannot be reached.
 
 Some APIs return models without a price or free-tier field. For those providers, Ghost uses their published free-tier rules to filter the live catalog. Those rules can lag a provider's pricing changes; report a stale listing with the provider ID and model ID.
