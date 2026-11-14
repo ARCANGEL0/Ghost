@@ -87,6 +87,13 @@ type (
 		Arguments   []commands.Argument
 		Args        map[string]string // Actual argument values
 	}
+	ActionSelectImportSource struct {
+		Source string
+	}
+	ActionImportExternalSession struct {
+		Source    string
+		Reference string
+	}
 	// ActionEnableDockerMCP is a message to enable Docker MCP.
 	ActionEnableDockerMCP struct{}
 	// ActionDisableDockerMCP is a message to disable Docker MCP.

@@ -1345,6 +1345,12 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionSelectSession:
 		m.dialog.CloseDialog(dialog.SessionsID)
 		cmds = append(cmds, m.loadSession(msg.Session.ID))
+	case dialog.ActionSelectImportSource:
+		m.dialog.CloseDialog(dialog.ImportAgentID)
+		m.dialog.OpenDialog(dialog.NewImportReference(m.com, msg.Source))
+	case dialog.ActionImportExternalSession:
+		m.dialog.CloseDialog(dialog.ImportReferenceID)
+		cmds = append(cmds, m.importExternalSession(msg.Source, msg.Reference))
 
 	// Open dialog message.
 	case dialog.ActionOpenDialog:
@@ -3217,6 +3223,12 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openFilesDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.ImportAgentID:
+		if m.dialog.ContainsDialog(dialog.ImportAgentID) {
+			m.dialog.BringToFront(dialog.ImportAgentID)
+		} else {
+			m.dialog.OpenDialog(dialog.NewImportAgent(m.com))
+		}
 	case dialog.QuitID:
 		if cmd := m.openQuitDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -3871,7 +3883,7 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 	case "import":
 		return m.importSession(args)
 	case "resume":
-		if strings.Contains(args, "--claude") || strings.Contains(args, "--codex") {
+		if strings.HasPrefix(strings.TrimSpace(args), "--") {
 			return m.importSession(args)
 		}
 		return m.openSessionsDialog()
@@ -3905,45 +3917,40 @@ func (m *UI) importSession(args string) tea.Cmd {
 		return util.ReportWarn("Agent is working, please wait before importing a session")
 	}
 	fields := strings.Fields(args)
-	if len(fields) != 2 || (fields[0] != "--claude" && fields[0] != "--codex") {
-		return util.ReportWarn("Usage: /import --claude|--codex <session-id>")
+	if len(fields) == 0 {
+		return m.openDialog(dialog.ImportAgentID)
 	}
-	sessionID := fields[1]
-	provider := strings.TrimPrefix(fields[0], "--")
-	providerID := provider
-	providerName := "Codex"
-	if provider == "claude" {
-		providerID = "claude-code"
-		providerName = "Claude Code"
+	source := strings.TrimPrefix(fields[0], "--")
+	reference := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(args), fields[0]))
+	if reference == "" {
+		return util.ReportWarn("Usage: /import --<agent> <session ID, title, or transcript path>")
 	}
+	return m.importExternalSession(source, reference)
+}
 
+func (m *UI) importExternalSession(source, reference string) tea.Cmd {
+	if m.isAgentBusy() {
+		return util.ReportWarn("Agent is working, please wait before importing a session")
+	}
 	return func() tea.Msg {
 		ctx := context.Background()
-		var imported []sessionimport.Message
-		var err error
-		switch provider {
-		case "claude":
-			imported, err = sessionimport.Claude(sessionID)
-		case "codex":
-			imported, err = sessionimport.Codex(sessionID)
-		}
+		result, err := sessionimport.Import(ctx, source, reference, m.com.Store().WorkingDir())
 		if err != nil {
 			return util.ReportError(err)()
 		}
-		shortID := sessionID
-		if len(shortID) > 8 {
-			shortID = shortID[:8]
-		}
-		name := "Imported " + providerName + " session " + shortID
+		providerName := sessionimport.SourceName(source)
+		name := providerName + ": " + result.Title
 		newSession, err := m.com.App.Sessions.Create(ctx, name)
 		if err != nil {
 			return util.ReportError(err)()
 		}
-		if err := m.com.App.Sessions.SetExternalSession(ctx, newSession.ID, providerID, sessionID); err != nil {
-			_ = m.com.App.Sessions.Delete(ctx, newSession.ID)
-			return util.ReportError(err)()
+		if result.Provider == "codex" {
+			if err := m.com.App.Sessions.SetExternalSession(ctx, newSession.ID, result.Provider, result.ID); err != nil {
+				_ = m.com.App.Sessions.Delete(ctx, newSession.ID)
+				return util.ReportError(err)()
+			}
 		}
-		for _, item := range imported {
+		for _, item := range result.Messages {
 			role := message.User
 			parts := []message.ContentPart{message.TextContent{Text: item.Text}}
 			if item.Role == "assistant" {
@@ -3954,13 +3961,13 @@ func (m *UI) importSession(args string) tea.Cmd {
 				Role:     role,
 				Parts:    parts,
 				Model:    "imported",
-				Provider: providerID,
+				Provider: result.Provider,
 			}); err != nil {
 				_ = m.com.App.Sessions.Delete(ctx, newSession.ID)
-				return util.ReportError(fmt.Errorf("import %s messages: %w", provider, err))()
+				return util.ReportError(fmt.Errorf("import %s messages: %w", providerName, err))()
 			}
 		}
-		return importedSessionMsg{sessionID: newSession.ID, count: len(imported), provider: providerName}
+		return importedSessionMsg{sessionID: newSession.ID, count: len(result.Messages), provider: providerName}
 	}
 }
 
