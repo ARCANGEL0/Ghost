@@ -1579,6 +1579,22 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 				cmds = append(cmds, util.ReportError(err))
 			}
 		}
+	case dialog.ActionSelectProvider:
+		if cmd := m.openProviderAuth(msg.Provider); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionSelectProviderAuth:
+		m.dialog.CloseDialog(dialog.ProviderAuthID)
+		if cmd := m.handleProviderAuth(msg.Provider, msg.Method); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionProviderConfigured:
+		cmds = append(cmds, m.providerConfigured(msg.Provider, msg.Method))
+	case dialog.ActionProviderSaved:
+		config.InvalidateProviderCatalogs()
+		m.dialog.CloseDialog(dialog.ProvidersID)
+		m.dialog.CloseDialog(dialog.APIKeyInputID)
+		cmds = append(cmds, util.ReportWarn(fmt.Sprintf("Saved the %s key without verifying the connection.", msg.Provider.Name)))
 	case dialog.ActionSelectReasoningEffort:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait..."))
@@ -3288,6 +3304,116 @@ func (m *UI) openModelsDialog() tea.Cmd {
 	return nil
 }
 
+// openProviderDialog opens the provider configuration dialog.
+func (m *UI) openProviderDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.ProvidersID) {
+		m.dialog.BringToFront(dialog.ProvidersID)
+		return nil
+	}
+
+	providersDialog, err := dialog.NewProviders(m.com)
+	if err != nil {
+		return util.ReportError(err)
+	}
+
+	m.dialog.OpenDialog(providersDialog)
+	return nil
+}
+
+// openProviderAuth opens the sign-in choices for a provider. Providers with a
+// single method skip the chooser and go straight to that flow.
+func (m *UI) openProviderAuth(provider catwalk.Provider) tea.Cmd {
+	methods := config.ProviderAuthMethods(string(provider.ID))
+	switch len(methods) {
+	case 0:
+		return util.ReportWarn("No sign-in method is available for " + provider.Name)
+	case 1:
+		return m.handleProviderAuth(provider, methods[0])
+	default:
+		m.dialog.OpenDialog(dialog.NewProviderAuth(m.com, provider, methods))
+		return nil
+	}
+}
+
+// handleProviderAuth starts the chosen sign-in flow and returns the command
+// that flow needs on open.
+func (m *UI) handleProviderAuth(provider catwalk.Provider, method config.AuthMethod) tea.Cmd {
+	switch method {
+	case config.AuthNone:
+		if err := m.com.Store().EnableProvider(config.ScopeGlobal, string(provider.ID)); err != nil {
+			return util.ReportError(err)
+		}
+		return m.providerConfigured(provider, method)
+
+	case config.AuthAPIKey:
+		dlg, cmd := dialog.NewProviderAPIKey(m.com, provider)
+		m.dialog.OpenDialog(dlg)
+		return cmd
+
+	case config.AuthOAuth:
+		model := config.SelectedModel{
+			Provider: string(provider.ID),
+			Model:    provider.DefaultLargeModelID,
+		}
+		switch string(provider.ID) {
+		case string(catwalk.InferenceProviderAnthropic):
+			dlg, cmd := dialog.NewClaudeOAuth(m.com, provider)
+			if dlg == nil {
+				return cmd
+			}
+			m.dialog.OpenDialog(dlg)
+			return cmd
+		case string(catwalk.InferenceProviderCopilot):
+			dlg, cmd := dialog.NewOAuthCopilot(m.com, false, provider, model, config.SelectedModelTypeLarge)
+			m.dialog.OpenDialog(dlg.AsProviderConfig())
+			return cmd
+		case "hyper":
+			dlg, cmd := dialog.NewOAuthHyper(m.com, false, provider, model, config.SelectedModelTypeLarge)
+			m.dialog.OpenDialog(dlg.AsProviderConfig())
+			return cmd
+		default:
+			return util.ReportWarn("Subscription sign-in is not available for " + provider.Name)
+		}
+
+	case config.AuthCLI:
+		if string(provider.ID) == "codex" {
+			return m.loginCodex()
+		}
+		return util.ReportWarn("CLI sign-in is not available for " + provider.Name)
+	}
+	return nil
+}
+
+// providerConfigured closes the provider dialogs and reports the result.
+func (m *UI) providerConfigured(provider catwalk.Provider, method config.AuthMethod) tea.Cmd {
+	config.InvalidateProviderCatalogs()
+	m.dialog.CloseDialog(dialog.ProvidersID)
+	m.dialog.CloseDialog(dialog.ProviderAuthID)
+	m.dialog.CloseDialog(dialog.OAuthID)
+	m.dialog.CloseDialog(dialog.ClaudeOAuthID)
+	m.dialog.CloseDialog(dialog.APIKeyInputID)
+	return util.ReportInfo(fmt.Sprintf("%s is ready (%s)", provider.Name, method.Label()))
+}
+
+// loginCodex runs the Codex CLI sign-in in the terminal and enables the
+// provider when it succeeds. Ghost talks to the Codex CLI at runtime, so the
+// CLI owns the session and Ghost stores no token.
+func (m *UI) loginCodex() tea.Cmd {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return util.ReportError(fmt.Errorf("Codex CLI is required for sign-in: %w", err))
+	}
+	cmd := exec.Command("codex", "login", "--device-auth")
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return util.ReportError(fmt.Errorf("Codex sign-in failed: %w", err))
+		}
+		if err := m.com.Store().EnableProvider(config.ScopeGlobal, "codex"); err != nil {
+			return util.ReportError(err)
+		}
+		return util.NewInfoMsg("Codex is signed in")
+	})
+}
+
 // openCommandsDialog opens the commands dialog.
 func (m *UI) openCommandsDialog() tea.Cmd {
 	if m.dialog.ContainsDialog(dialog.CommandsID) {
@@ -3880,6 +4006,8 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 		return nil
 	case "models":
 		return m.openModelsDialog()
+	case "provider", "providers":
+		return m.openProviderDialog()
 	case "import":
 		return m.importSession(args)
 	case "resume":

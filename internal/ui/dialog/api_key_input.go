@@ -36,15 +36,17 @@ type APIKeyInput struct {
 	com          *common.Common
 	isOnboarding bool
 
-	provider  catwalk.Provider
-	model     config.SelectedModel
-	modelType config.SelectedModelType
+	provider      catwalk.Provider
+	model         config.SelectedModel
+	modelType     config.SelectedModelType
+	configureOnly bool
 
 	width int
 	state APIKeyInputState
 
 	keyMap struct {
 		Submit key.Binding
+		Save   key.Binding
 		Close  key.Binding
 	}
 	input   textinput.Model
@@ -92,6 +94,10 @@ func NewAPIKeyInput(
 	m.keyMap.Submit = key.NewBinding(
 		key.WithKeys("enter", "ctrl+y"),
 		key.WithHelp("enter", "submit"),
+	)
+	m.keyMap.Save = key.NewBinding(
+		key.WithKeys("ctrl+s"),
+		key.WithHelp("ctrl+s", "save without test"),
 	)
 	m.keyMap.Close = CloseKey
 
@@ -146,6 +152,8 @@ func (m *APIKeyInput) HandleMsg(msg tea.Msg) Action {
 			case APIKeyInputStateVerified:
 				return m.saveKeyAndContinue()
 			}
+		case m.state == APIKeyInputStateError && key.Matches(msg, m.keyMap.Save):
+			return m.saveKeyWithoutTest()
 		default:
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
@@ -231,7 +239,7 @@ func (m *APIKeyInput) dialogTitle() string {
 	case APIKeyInputStateVerified:
 		return accentStyle.Render(fmt.Sprintf("%s Key", m.provider.Name)) + textStyle.Render(" validated.")
 	case APIKeyInputStateError:
-		return errorStyle.Render("Invalid ") + accentStyle.Render(fmt.Sprintf("%s Key", m.provider.Name)) + errorStyle.Render(". Try again?")
+		return errorStyle.Render("Could not verify ") + accentStyle.Render(fmt.Sprintf("%s Key", m.provider.Name)) + errorStyle.Render(". Retry or save without testing.")
 	}
 	return ""
 }
@@ -286,10 +294,14 @@ func (m *APIKeyInput) FullHelp() [][]key.Binding {
 
 // ShortHelp returns the full help view.
 func (m *APIKeyInput) ShortHelp() []key.Binding {
-	return []key.Binding{
+	bindings := []key.Binding{
 		m.keyMap.Submit,
 		m.keyMap.Close,
 	}
+	if m.state == APIKeyInputStateError {
+		bindings = append(bindings, m.keyMap.Save)
+	}
+	return bindings
 }
 
 func (m *APIKeyInput) verifyAPIKey() tea.Msg {
@@ -340,9 +352,43 @@ func (m *APIKeyInput) saveKeyAndContinue() Action {
 		return ActionCmd{util.ReportError(fmt.Errorf("failed to save API key: %w", err))}
 	}
 
+	if m.configureOnly {
+		return ActionProviderConfigured{Provider: m.provider, Method: config.AuthAPIKey}
+	}
+
 	return ActionSelectModel{
 		Provider:  m.provider,
 		Model:     m.model,
 		ModelType: m.modelType,
 	}
+}
+
+func (m *APIKeyInput) saveKeyWithoutTest() Action {
+	if strings.TrimSpace(m.input.Value()) == "" {
+		return ActionCmd{util.ReportWarn("Enter an API key first.")}
+	}
+	if err := m.com.Store().SetProviderAPIKey(config.ScopeGlobal, string(m.provider.ID), m.input.Value()); err != nil {
+		return ActionCmd{util.ReportError(fmt.Errorf("failed to save API key: %w", err))}
+	}
+	if m.configureOnly {
+		return ActionProviderSaved{Provider: m.provider}
+	}
+	return ActionSelectModel{
+		Provider:  m.provider,
+		Model:     m.model,
+		ModelType: m.modelType,
+	}
+}
+
+// NewProviderAPIKey creates a dialog that stores an API key for a provider
+// without changing the active model. The provider dialog uses this when the
+// user only wants to add a provider.
+func NewProviderAPIKey(com *common.Common, provider catwalk.Provider) (*APIKeyInput, tea.Cmd) {
+	model := config.SelectedModel{
+		Provider: string(provider.ID),
+		Model:    provider.DefaultLargeModelID,
+	}
+	dlg, cmd := NewAPIKeyInput(com, false, provider, model, config.SelectedModelTypeLarge)
+	dlg.configureOnly = true
+	return dlg, cmd
 }

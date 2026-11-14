@@ -423,6 +423,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		NewCommandItem(c.com.Styles, "switch_session", "Sessions", "ctrl+s", ActionOpenDialog{SessionsID}),
 		NewCommandItem(c.com.Styles, "import_agent_session", "Import Session", "", ActionOpenDialog{ImportAgentID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+l", ActionOpenDialog{ModelsID}),
+		NewCommandItem(c.com.Styles, "providers", "Configure Providers", "", ActionOpenDialog{ProvidersID}),
 	}
 
 	if c.hasSession {

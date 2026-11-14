@@ -47,6 +47,7 @@ type OAuth struct {
 	model         config.SelectedModel
 	modelType     config.SelectedModelType
 	oAuthProvider OAuthProvider
+	configureOnly bool
 
 	State OAuthState
 
@@ -378,9 +379,21 @@ func (m *OAuth) saveKeyAndContinue() Action {
 		return ActionCmd{util.ReportError(fmt.Errorf("failed to save API key: %w", err))}
 	}
 
+	if m.configureOnly {
+		return ActionProviderConfigured{Provider: m.provider, Method: config.AuthOAuth}
+	}
+
 	return ActionSelectModel{
 		Provider:  m.provider,
 		Model:     m.model,
 		ModelType: m.modelType,
 	}
+}
+
+// AsProviderConfig makes the dialog configure the provider without switching
+// the active model. The provider dialog uses this when the user only wants to
+// add an account.
+func (m *OAuth) AsProviderConfig() *OAuth {
+	m.configureOnly = true
+	return m
 }
