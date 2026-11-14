@@ -33,6 +33,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/lsp"
 	"github.com/swadhinbiswas/ghost/internal/memory"
 	"github.com/swadhinbiswas/ghost/internal/message"
+	"github.com/swadhinbiswas/ghost/internal/oauth/claude"
 	"github.com/swadhinbiswas/ghost/internal/oauth/copilot"
 	"github.com/swadhinbiswas/ghost/internal/permission"
 	"github.com/swadhinbiswas/ghost/internal/plugin"
@@ -489,6 +490,15 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	}
 
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
+	// Anthropic subscription tokens only work when the request identifies as
+	// Claude Code. Configs created by older versions, or by the provider
+	// dialog, do not carry this prefix, so add it here as well.
+	if largeProviderCfg.OAuthToken != nil && largeProviderCfg.ID == string(catwalk.InferenceProviderAnthropic) &&
+		!strings.HasPrefix(largeProviderCfg.SystemPromptPrefix, claude.SystemPromptPrefix()) {
+		largeProviderCfg.SystemPromptPrefix = strings.TrimSpace(
+			claude.SystemPromptPrefix() + "\n\n" + largeProviderCfg.SystemPromptPrefix,
+		)
+	}
 	result := NewSessionAgent(SessionAgentOptions{
 		LargeModel:           large,
 		SmallModel:           small,
@@ -811,6 +821,28 @@ func freeProviderRank(providerID string) int {
 	}
 }
 
+// mergeBetas appends beta flags to an existing comma-separated header,
+// preserving order and dropping duplicates.
+func mergeBetas(existing string, betas ...string) string {
+	seen := make(map[string]bool)
+	merged := make([]string, 0, len(betas)+2)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		merged = append(merged, value)
+	}
+	for _, value := range strings.Split(existing, ",") {
+		add(value)
+	}
+	for _, value := range betas {
+		add(value)
+	}
+	return strings.Join(merged, ",")
+}
+
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []anthropic.Option
 
@@ -1057,6 +1089,13 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 
 	apiKey, _ := c.cfg.Resolve(providerCfg.APIKey)
 	baseURL, _ := c.cfg.Resolve(providerCfg.BaseURL)
+
+	if providerCfg.Type == anthropic.Name && providerCfg.OAuthToken != nil {
+		headers["anthropic-beta"] = mergeBetas(headers["anthropic-beta"], claude.BetaHeader)
+		if token := cmp.Or(apiKey, providerCfg.OAuthToken.AccessToken); token != "" {
+			apiKey = "Bearer " + strings.TrimPrefix(token, "Bearer ")
+		}
+	}
 
 	switch providerCfg.Type {
 	case openai.Name:

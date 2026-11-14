@@ -26,6 +26,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/fsext"
 	"github.com/swadhinbiswas/ghost/internal/home"
 	"github.com/swadhinbiswas/ghost/internal/log"
+	"github.com/swadhinbiswas/ghost/internal/oauth/claude"
 )
 
 const defaultCatwalkURL = "https://catwalk.charm.sh"
@@ -91,6 +92,7 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	providers = withEmbeddedProviders(providers)
 	store.knownProviders = providers
 
 	env := env.New()
@@ -240,10 +242,13 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 
 		switch {
 		case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil:
-			// Claude Code subscription is not supported anymore. Remove to show onboarding.
-			_ = store.RemoveConfigField(ScopeGlobal, "providers.anthropic")
-			c.Providers.Del(string(p.ID))
-			continue
+			// Claude Pro/Max subscription via Claude Code OAuth. The access
+			// token is sent as a bearer token with the OAuth beta header.
+			p.APIKey = config.OAuthToken.AccessToken
+			prepared.APIKey = config.OAuthToken.AccessToken
+			prepared.SystemPromptPrefix = strings.TrimSpace(
+				claude.SystemPromptPrefix() + "\n\n" + prepared.SystemPromptPrefix,
+			)
 		case p.ID == catwalk.InferenceProviderCopilot && config.OAuthToken != nil:
 			prepared.SetupGitHubCopilot()
 		}
@@ -295,6 +300,9 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 		case "opencode":
 			// OpenCode Zen free models do not require an API key.
 			// Skip the API key check so free-tier users can use it out of the box.
+		case "codex":
+			// Codex runs through the Codex CLI, which owns its own sign-in.
+			// Keep it in the model list even though Ghost stores no key.
 		case "nvidia-nim":
 			// Nvidia NIM is shown in the model list even without an API key.
 			// If the user selects it without a key, the auth dialog will prompt.

@@ -13,6 +13,7 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	hyperp "github.com/swadhinbiswas/ghost/internal/agent/hyper"
 	"github.com/swadhinbiswas/ghost/internal/oauth"
+	"github.com/swadhinbiswas/ghost/internal/oauth/claude"
 	"github.com/swadhinbiswas/ghost/internal/oauth/copilot"
 	"github.com/swadhinbiswas/ghost/internal/oauth/hyper"
 	"github.com/tidwall/gjson"
@@ -179,7 +180,16 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 		if err := s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), v); err != nil {
 			return fmt.Errorf("failed to save api key to config file: %w", err)
 		}
-		setKeyOrToken = func() { providerConfig.APIKey = v }
+		oauthKey := fmt.Sprintf("providers.%s.oauth", providerID)
+		if s.HasConfigField(scope, oauthKey) {
+			if err := s.RemoveConfigField(scope, oauthKey); err != nil {
+				return fmt.Errorf("failed to clear oauth token from config file: %w", err)
+			}
+		}
+		setKeyOrToken = func() {
+			providerConfig.APIKey = v
+			providerConfig.OAuthToken = nil
+		}
 	case *oauth.Token:
 		if err := cmp.Or(
 			s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), v.AccessToken),
@@ -204,31 +214,65 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 		return nil
 	}
 
-	var foundProvider *catwalk.Provider
+	providerConfig, found := s.providerTemplate(providerID)
+	if !found {
+		return fmt.Errorf("provider with ID %s not found in known providers", providerID)
+	}
+	setKeyOrToken()
+	s.config.Providers.Set(providerID, providerConfig)
+	return nil
+}
+
+// EnableProvider adds a provider to the running config without storing a key.
+// It is used for providers that sign in through their own CLI or need no
+// credentials at all.
+func (s *ConfigStore) EnableProvider(scope Scope, providerID string) error {
+	providerConfig, found := s.providerTemplate(providerID)
+	if !found {
+		return fmt.Errorf("provider with ID %s not found in known providers", providerID)
+	}
+	if err := s.SetConfigField(scope, fmt.Sprintf("providers.%s.disable", providerID), false); err != nil {
+		return fmt.Errorf("failed to enable provider in config file: %w", err)
+	}
+	providerConfig.Disable = false
+	s.config.Providers.Set(providerID, providerConfig)
+	return nil
+}
+
+// providerTemplate returns the current config for a provider, or a new one
+// built from the known catalog. It is the shared lookup used when a provider is
+// configured for the first time.
+func (s *ConfigStore) providerTemplate(providerID string) (ProviderConfig, bool) {
+	if providerConfig, ok := s.config.Providers.Get(providerID); ok {
+		return providerConfig, true
+	}
+
+	var found catwalk.Provider
+	var ok bool
 	for _, p := range s.knownProviders {
 		if string(p.ID) == providerID {
-			foundProvider = &p
+			found = p
+			ok = true
 			break
 		}
 	}
-
-	if foundProvider != nil {
-		providerConfig = ProviderConfig{
-			ID:           providerID,
-			Name:         foundProvider.Name,
-			BaseURL:      foundProvider.APIEndpoint,
-			Type:         foundProvider.Type,
-			Disable:      false,
-			ExtraHeaders: make(map[string]string),
-			ExtraParams:  make(map[string]string),
-			Models:       foundProvider.Models,
-		}
-		setKeyOrToken()
-	} else {
-		return fmt.Errorf("provider with ID %s not found in known providers", providerID)
+	if !ok {
+		found, ok = LookupProvider(providerID)
 	}
-	s.config.Providers.Set(providerID, providerConfig)
-	return nil
+	if !ok {
+		return ProviderConfig{}, false
+	}
+
+	return ProviderConfig{
+		ID:           providerID,
+		Name:         found.Name,
+		BaseURL:      found.APIEndpoint,
+		Type:         found.Type,
+		Disable:      false,
+		ExtraHeaders: make(map[string]string),
+		ExtraParams:  make(map[string]string),
+		Models:       found.Models,
+	}, true
 }
 
 // RefreshOAuthToken refreshes the OAuth token for the given provider.
@@ -245,6 +289,12 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 	var newToken *oauth.Token
 	var refreshErr error
 	switch providerID {
+	case string(catwalk.InferenceProviderAnthropic):
+		oldRefresh := providerConfig.OAuthToken.RefreshToken
+		newToken, refreshErr = claude.Refresh(ctx, oldRefresh)
+		if refreshErr == nil {
+			claude.UpdateDiskToken(oldRefresh, newToken)
+		}
 	case string(catwalk.InferenceProviderCopilot):
 		newToken, refreshErr = copilot.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	case hyperp.Name:
