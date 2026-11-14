@@ -45,14 +45,14 @@ type contentBlock struct {
 }
 
 func Claude(id string) ([]Message, error) {
-	if !sessionIDPattern.MatchString(id) {
-		return nil, fmt.Errorf("invalid Claude Code session ID %q", id)
-	}
-
 	path, err := findClaudeSession(id)
 	if err != nil {
 		return nil, err
 	}
+	return claudeFile(path)
+}
+
+func claudeFile(path string) ([]Message, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open Claude Code session: %w", err)
@@ -104,6 +104,9 @@ func Claude(id string) ([]Message, error) {
 }
 
 func findClaudeSession(id string) (string, error) {
+	if len(id) > 256 || strings.ContainsAny(id, "\x00\n\r") {
+		return "", fmt.Errorf("invalid Claude Code session reference")
+	}
 	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	if configDir == "" {
 		homeDir, err := os.UserHomeDir()
@@ -119,25 +122,73 @@ func findClaudeSession(id string) (string, error) {
 		return "", fmt.Errorf("read Claude Code projects: %w", err)
 	}
 
-	var found string
+	var directMatches []string
+	var promptMatches []string
 	for _, project := range projects {
 		if !project.IsDir() {
 			continue
 		}
-		path := filepath.Join(projectsDir, project.Name(), id+".jsonl")
-		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() {
+		projectDir := filepath.Join(projectsDir, project.Name())
+		if sessionIDPattern.MatchString(id) {
+			path := filepath.Join(projectDir, id+".jsonl")
+			info, err := os.Stat(path)
+			if err == nil && info.Mode().IsRegular() {
+				directMatches = append(directMatches, path)
+			}
+		}
+		files, err := os.ReadDir(projectDir)
+		if err != nil {
 			continue
 		}
-		if found != "" {
-			return "", fmt.Errorf("Claude Code session ID %q matches more than one file", id)
+		for _, entry := range files {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+				continue
+			}
+			path := filepath.Join(projectDir, entry.Name())
+			prompt := firstClaudePrompt(path)
+			if prompt != "" && strings.Contains(strings.ToLower(prompt), strings.ToLower(id)) {
+				promptMatches = append(promptMatches, path)
+			}
 		}
-		found = path
 	}
-	if found == "" {
+	if len(directMatches) > 1 {
+		return "", fmt.Errorf("Claude Code session ID %q matches more than one file", id)
+	}
+	if len(directMatches) == 1 {
+		return directMatches[0], nil
+	}
+	matches := promptMatches
+	if len(matches) > 1 {
+		return "", fmt.Errorf("more than one Claude Code session matches %q; use its session ID", id)
+	}
+	if len(matches) == 0 {
 		return "", fmt.Errorf("Claude Code session %q was not found under %s", id, projectsDir)
 	}
-	return found, nil
+	return matches[0], nil
+}
+
+func firstClaudePrompt(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	reader := bufio.NewScanner(file)
+	reader.Buffer(make([]byte, 64*1024), maxLineBytes)
+	for reader.Scan() {
+		var record claudeRecord
+		if json.Unmarshal(reader.Bytes(), &record) != nil || record.IsSidechain || record.IsMeta {
+			continue
+		}
+		role := record.Message.Role
+		if role == "" {
+			role = record.Type
+		}
+		if role == "user" {
+			return strings.TrimSpace(readContent(record.Message.Content, 0))
+		}
+	}
+	return ""
 }
 
 func readContent(raw json.RawMessage, depth int) string {
