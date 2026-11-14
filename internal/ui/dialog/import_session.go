@@ -146,7 +146,7 @@ func (d *ImportAgent) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	d.help.SetWidth(innerWidth)
 
 	rc := NewRenderContext(t, width)
-	rc.Title = "Import Agent Session"
+	rc.Title = "Import Session"
 	rc.AddPart(t.Dialog.InputPrompt.Render(d.input.View()))
 	rc.AddPart(t.Dialog.List.Height(d.list.Height()).Render(d.list.Render()))
 	rc.Help = d.help.View(d)

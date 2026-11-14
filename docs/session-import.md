@@ -1,6 +1,6 @@
 # Import coding agent sessions
 
-The command picker has an **Import Agent Session** entry. Choose an agent, then
+The command picker has an **Import Session** entry. Choose an agent, then
 enter a session ID or part of its title or first prompt. `/import` opens the
 same picker.
 
