@@ -108,7 +108,7 @@ func fetchFreshDynamicProviders(cfgs ...*Config) []catwalk.Provider {
 
 func hasLiveCatalog(id string) bool {
 	switch id {
-	case "openrouter", "kilo", "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "aion", "huggingface", "llm7", "typhoon", "nous-portal", "ollama-local":
+	case "openrouter", "kilo", "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "aion", "huggingface", "llm7", "typhoon", "nous-portal", "ollama-local", "codecraft", "agentrouter", "justdowork":
 		return true
 	default:
 		return false
@@ -117,7 +117,7 @@ func hasLiveCatalog(id string) bool {
 
 func needsCatalogKey(id string) bool {
 	switch id {
-	case "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "huggingface", "llm7", "typhoon", "nous-portal":
+	case "nvidia-nim", "groq", "cerebras", "googleai", "cloudflare", "cohere", "amd-radeon", "huggingface", "llm7", "typhoon", "nous-portal", "codecraft", "agentrouter", "justdowork":
 		return true
 	default:
 		return false

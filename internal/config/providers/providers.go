@@ -5,9 +5,12 @@ import "charm.land/catwalk/pkg/catwalk"
 func AllFreeProviders() []catwalk.Provider {
 	return []catwalk.Provider{
 		AutoFreeProvider,
+		CodeCraftProvider,
+		AgentRouterProvider,
+		JustDoWorkProvider,
+		KiloProvider,
 		CodexProvider,
 		OpenRouterFreeProvider,
-		KiloProvider,
 		OIVSCodeProvider,
 		GroqProvider,
 		CerebrasProvider,
@@ -44,9 +47,9 @@ func ProviderTier(id string) Tier {
 		return TierFree
 	case "ollama-local":
 		return TierLocal
-	case "googleai", "groq", "cloudflare", "cohere", "nvidia-nim", "aion", "llm7", "typhoon":
+	case "googleai", "groq", "cloudflare", "cohere", "nvidia-nim", "aion", "llm7", "typhoon", "codecraft":
 		return TierQuota
-	case "cerebras", "huggingface":
+	case "cerebras", "huggingface", "agentrouter", "justdowork":
 		return TierCredits
 	default:
 		return ""

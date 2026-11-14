@@ -127,7 +127,9 @@ func UpdateHyper(pathOrURL string) error {
 
 var allowedProviders = map[string]bool{
 	"auto-free":    true,
+	"agentrouter":  true,
 	"codex":        true,
+	"codecraft":    true,
 	"nvidia-nim":   true,
 	"oi-vscode":    true,
 	"openrouter":   true,
@@ -141,6 +143,7 @@ var allowedProviders = map[string]bool{
 	"aion":         true,
 	"huggingface":  true,
 	"llm7":         true,
+	"justdowork":   true,
 	"typhoon":      true,
 	"nous-portal":  true,
 	"ollama-local": true,
@@ -210,6 +213,13 @@ func Providers(cfg *Config) ([]catwalk.Provider, error) {
 
 func providerAutoUpdateDisabled(cfg *Config) bool {
 	return cfg != nil && cfg.Options != nil && cfg.Options.DisableProviderAutoUpdate
+}
+
+// InvalidateProviderCatalogs makes the next provider lookup refresh live models.
+func InvalidateProviderCatalogs() {
+	dynamicCatalogState.Lock()
+	dynamicCatalogState.refreshed = time.Time{}
+	dynamicCatalogState.Unlock()
 }
 
 func refreshProviderCatalogs(cfg *Config) []catwalk.Provider {
