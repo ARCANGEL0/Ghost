@@ -45,6 +45,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/pubsub"
 	"github.com/swadhinbiswas/ghost/internal/session"
 	"github.com/swadhinbiswas/ghost/internal/sessionimport"
+	"github.com/swadhinbiswas/ghost/internal/skills"
 	"github.com/swadhinbiswas/ghost/internal/ui/anim"
 	"github.com/swadhinbiswas/ghost/internal/ui/attachments"
 	"github.com/swadhinbiswas/ghost/internal/ui/chat"
@@ -117,6 +118,12 @@ type importedSessionMsg struct {
 	sessionID string
 	count     int
 	provider  string
+}
+
+type skillsSettingsMsg struct {
+	disabled []string
+	notice   string
+	err      error
 }
 
 type (
@@ -571,6 +578,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			util.ReportInfo(fmt.Sprintf("Imported %d %s messages", msg.count, msg.provider)),
 			m.loadSession(msg.sessionID),
 		)
+	case skillsSettingsMsg:
+		if msg.err != nil {
+			cmds = append(cmds, util.ReportError(msg.err))
+			break
+		}
+		m.com.Store().ApplyDisabledSkills(msg.disabled)
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(msg.notice)))
 
 	case sessionFilesUpdatesMsg:
 		m.sessionFiles = msg.sessionFiles
@@ -1357,6 +1371,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.CommandsID)
 		if cmd := m.openDialog(msg.DialogID); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionSkillsUpdated:
+		if msg.Update {
+			m.com.Store().ApplyDisabledSkills(msg.Disabled)
+		}
+		if msg.Notice != "" {
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(msg.Notice)))
 		}
 
 	// Command dialog messages.
@@ -3245,6 +3266,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		} else {
 			m.dialog.OpenDialog(dialog.NewImportAgent(m.com))
 		}
+	case dialog.SkillsID:
+		return m.openSkillsDialog(false, "")
+	case dialog.ImportSkillsID:
+		return m.openSkillsDialog(true, "")
 	case dialog.QuitID:
 		if cmd := m.openQuitDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -3318,6 +3343,109 @@ func (m *UI) openProviderDialog() tea.Cmd {
 
 	m.dialog.OpenDialog(providersDialog)
 	return nil
+}
+
+func (m *UI) openSkillsDialog(importing bool, query string) tea.Cmd {
+	id := dialog.SkillsID
+	if importing {
+		id = dialog.ImportSkillsID
+	}
+	if m.dialog.ContainsDialog(id) {
+		m.dialog.BringToFront(id)
+		return nil
+	}
+	d := dialog.NewSkills(m.com, importing, query)
+	m.dialog.OpenDialog(d)
+	return d.InitialCmd()
+}
+
+func (m *UI) openSkillsMarketplace(query string) tea.Cmd {
+	d := dialog.NewSkills(m.com, false, "")
+	d.OpenMarketplace(query)
+	m.dialog.OpenDialog(d)
+	return d.InitialCmd()
+}
+
+func (m *UI) openSkillsClawHub(query string) tea.Cmd {
+	d := dialog.NewSkills(m.com, false, "")
+	d.OpenClawHub(query)
+	m.dialog.OpenDialog(d)
+	return d.InitialCmd()
+}
+
+func (m *UI) openSkillsUninstall(name string) tea.Cmd {
+	if !skills.ValidName(name) {
+		return util.ReportWarn("Use a skill name made of letters, numbers, and hyphens")
+	}
+	d := dialog.NewSkills(m.com, false, "")
+	d.RequestUninstall(name)
+	m.dialog.OpenDialog(d)
+	return d.InitialCmd()
+}
+
+func (m *UI) openGitHubSkillInstall(source string) tea.Cmd {
+	d := dialog.NewSkills(m.com, false, "")
+	d.OpenMarketplace("")
+	m.dialog.OpenDialog(d)
+	return tea.Batch(d.InitialCmd(), d.StartGitHubInstall(source))
+}
+
+func (m *UI) openMarketplaceSkillInstall(id string) tea.Cmd {
+	d := dialog.NewSkills(m.com, false, "")
+	d.OpenMarketplace("")
+	m.dialog.OpenDialog(d)
+	return tea.Batch(d.InitialCmd(), d.StartMarketplaceInstall(id))
+}
+
+func (m *UI) openClawHubSkillInstall(slug string) tea.Cmd {
+	d := dialog.NewSkills(m.com, false, "")
+	d.OpenClawHub("")
+	m.dialog.OpenDialog(d)
+	return tea.Batch(d.InitialCmd(), d.StartClawHubInstall(slug))
+}
+
+func (m *UI) setSkillEnabled(name string, enabled bool) tea.Cmd {
+	if !skills.ValidName(name) {
+		return util.ReportWarn("Use a skill name made of letters, numbers, and hyphens")
+	}
+	store := m.com.Store()
+	disabled := slices.Clone(m.com.Config().Options.DisabledSkills)
+	paths := slices.Clone(m.com.Config().Options.SkillsPaths)
+	if enabled {
+		disabled = slices.DeleteFunc(disabled, func(item string) bool { return item == name })
+	} else if !slices.Contains(disabled, name) {
+		disabled = append(disabled, name)
+	}
+	slices.Sort(disabled)
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	return func() tea.Msg {
+		found := false
+		for _, path := range paths {
+			expanded, err := fsext.Expand(path)
+			if err != nil {
+				expanded = path
+			}
+			for _, skill := range skills.Discover([]string{expanded}) {
+				if skill.Name == name {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			return skillsSettingsMsg{err: fmt.Errorf("skill %q is not installed", name)}
+		}
+		if err := store.SetConfigField(config.ScopeGlobal, "options.disabled_skills", disabled); err != nil {
+			return skillsSettingsMsg{err: err}
+		}
+		return skillsSettingsMsg{disabled: disabled, notice: "Skill " + name + " " + state}
+	}
 }
 
 // openProviderAuth opens the sign-in choices for a provider. Providers with a
@@ -4008,6 +4136,49 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 		return m.openModelsDialog()
 	case "provider", "providers":
 		return m.openProviderDialog()
+	case "skills":
+		fields := strings.Fields(args)
+		if len(fields) == 0 {
+			return m.openSkillsDialog(false, "")
+		}
+		action := strings.ToLower(fields[0])
+		value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(args), fields[0]))
+		switch action {
+		case "search", "browse":
+			return m.openSkillsMarketplace(value)
+		case "clawhub":
+			return m.openSkillsClawHub(value)
+		case "install":
+			if value == "" {
+				return m.openSkillsMarketplace("")
+			}
+			if strings.HasPrefix(value, "clawhub/") {
+				return m.openClawHubSkillInstall(strings.TrimPrefix(value, "clawhub/"))
+			}
+			if strings.HasPrefix(value, "clawhub:") {
+				return m.openClawHubSkillInstall(strings.TrimPrefix(value, "clawhub:"))
+			}
+			if strings.HasPrefix(value, "official/") {
+				return m.openMarketplaceSkillInstall(value)
+			}
+			if strings.HasPrefix(value, "skills-sh/") {
+				return m.openMarketplaceSkillInstall(strings.TrimPrefix(value, "skills-sh/"))
+			}
+			if strings.Contains(value, "/") || strings.HasPrefix(value, "https://github.com/") || strings.HasPrefix(value, "github:") {
+				return m.openGitHubSkillInstall(value)
+			}
+			return m.openSkillsMarketplace(value)
+		case "uninstall", "remove":
+			return m.openSkillsUninstall(value)
+		case "enable":
+			return m.setSkillEnabled(value, true)
+		case "disable":
+			return m.setSkillEnabled(value, false)
+		default:
+			return m.openSkillsMarketplace(strings.TrimSpace(args))
+		}
+	case "import-skills":
+		return m.openSkillsDialog(true, "")
 	case "import":
 		return m.importSession(args)
 	case "resume":

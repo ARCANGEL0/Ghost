@@ -169,6 +169,17 @@ func (s *ConfigStore) SetPlanMode(scope Scope, enabled bool) error {
 	return s.SetConfigField(scope, "options.tui.plan_mode", enabled)
 }
 
+// ApplyDisabledSkills updates the in-memory skill filter after saving it.
+func (s *ConfigStore) ApplyDisabledSkills(names []string) {
+	if s == nil || s.config == nil {
+		return
+	}
+	if s.config.Options == nil {
+		s.config.Options = &Options{}
+	}
+	s.config.Options.DisabledSkills = slices.Clone(names)
+}
+
 // SetProviderAPIKey sets the API key for a provider and persists it.
 func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey any) error {
 	var providerConfig ProviderConfig

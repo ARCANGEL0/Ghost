@@ -208,8 +208,19 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		for _, pth := range cfg.Options.SkillsPaths {
 			expandedPaths = append(expandedPaths, expandPath(pth, store))
 		}
-		if discoveredSkills := skills.Discover(expandedPaths); len(discoveredSkills) > 0 {
-			availSkillXML = skills.ToPromptXML(discoveredSkills)
+		disabled := make(map[string]struct{}, len(cfg.Options.DisabledSkills))
+		for _, name := range cfg.Options.DisabledSkills {
+			disabled[name] = struct{}{}
+		}
+		discoveredSkills := skills.Discover(expandedPaths)
+		enabledSkills := discoveredSkills[:0]
+		for _, skill := range discoveredSkills {
+			if _, ok := disabled[skill.Name]; !ok {
+				enabledSkills = append(enabledSkills, skill)
+			}
+		}
+		if len(enabledSkills) > 0 {
+			availSkillXML = skills.ToPromptXML(enabledSkills)
 		}
 	}
 	projectMemory := make(map[string]string)
