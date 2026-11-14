@@ -42,6 +42,30 @@ type ActionSelectModel struct {
 	ReAuthenticate bool
 }
 
+// ActionSelectProvider is a message indicating a provider has been selected
+// in the provider dialog.
+type ActionSelectProvider struct {
+	Provider catwalk.Provider
+}
+
+// ActionSelectProviderAuth is a message indicating a sign-in method has been
+// chosen for a provider.
+type ActionSelectProviderAuth struct {
+	Provider catwalk.Provider
+	Method   config.AuthMethod
+}
+
+// ActionProviderConfigured is a message indicating a provider is ready to use.
+type ActionProviderConfigured struct {
+	Provider catwalk.Provider
+	Method   config.AuthMethod
+}
+
+// ActionProviderSaved reports a key saved without a successful connection check.
+type ActionProviderSaved struct {
+	Provider catwalk.Provider
+}
+
 // Messages for commands
 type (
 	ActionNewSession                  struct{}
