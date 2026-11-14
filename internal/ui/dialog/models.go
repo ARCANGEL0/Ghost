@@ -2,8 +2,12 @@ package dialog
 
 import (
 	"cmp"
+	"context"
 	"fmt"
+	"os/exec"
 	"slices"
+	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -76,8 +80,9 @@ type Models struct {
 	com          *common.Common
 	isOnboarding bool
 
-	modelType ModelType
-	providers []catwalk.Provider
+	modelType  ModelType
+	providers  []catwalk.Provider
+	codexReady *bool
 
 	keyMap struct {
 		Tab      key.Binding
@@ -341,8 +346,61 @@ func (m *Models) isSelectedConfigured() bool {
 		return false
 	}
 	providerID := string(modelItem.prov.ID)
-	_, isConfigured := m.com.Config().Providers.Get(providerID)
-	return isConfigured
+	methods := config.ProviderAuthMethods(providerID)
+	return !slices.Contains(methods, config.AuthNone) &&
+		!slices.Contains(methods, config.AuthCLI) && m.hasProviderAccess(providerID)
+}
+
+func (m *Models) hasProviderAccess(id string) bool {
+	cfg := m.com.Config()
+	if cfg == nil || cfg.Providers == nil {
+		return slices.Contains(config.ProviderAuthMethods(id), config.AuthNone)
+	}
+
+	provider, configured := cfg.Providers.Get(id)
+	if configured && provider.Disable {
+		return false
+	}
+	if !configured {
+		return slices.Contains(config.ProviderAuthMethods(id), config.AuthNone)
+	}
+
+	methods := config.ProviderAuthMethods(id)
+	if slices.Contains(methods, config.AuthNone) {
+		return true
+	}
+	if slices.Contains(methods, config.AuthCLI) {
+		return m.codexIsSignedIn()
+	}
+	if provider.OAuthToken != nil {
+		return true
+	}
+
+	key := cmp.Or(provider.APIKey, provider.APIKeyTemplate)
+	if key != "" && key != "no-key-needed" {
+		resolved, err := m.com.Store().Resolve(key)
+		return err == nil && strings.TrimSpace(resolved) != ""
+	}
+
+	if _, known := config.LookupProvider(id); !known {
+		return provider.BaseURL != "" && len(provider.Models) > 0
+	}
+	return false
+}
+
+func (m *Models) codexIsSignedIn() bool {
+	if m.codexReady != nil {
+		return *m.codexReady
+	}
+
+	ready := false
+	if path, err := exec.LookPath("codex"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		ready = exec.CommandContext(ctx, path, "login", "status").Run() == nil
+	}
+	m.codexReady = &ready
+	return ready
 }
 
 // setProviderItems sets the provider items in the list.
@@ -374,7 +432,7 @@ func (m *Models) setProviderItems() error {
 	itemsMap := make(map[string]*ModelItem)
 	groups := []ModelGroup{}
 	for id, p := range cfg.Providers.Seq2() {
-		if p.Disable {
+		if p.Disable || !m.hasProviderAccess(id) {
 			continue
 		}
 
@@ -424,7 +482,7 @@ func (m *Models) setProviderItems() error {
 		}
 
 		providerConfig, providerConfigured := cfg.Providers.Get(providerID)
-		if providerConfigured && providerConfig.Disable {
+		if (providerConfigured && providerConfig.Disable) || !m.hasProviderAccess(providerID) {
 			continue
 		}
 
@@ -463,7 +521,9 @@ func (m *Models) setProviderItems() error {
 			}
 		}
 
-		groups = append(groups, group)
+		if len(group.Items) > 0 {
+			groups = append(groups, group)
+		}
 	}
 
 	if len(recentItems) > 0 {
