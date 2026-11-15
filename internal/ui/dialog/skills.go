@@ -53,6 +53,7 @@ type Skills struct {
 	loading   bool
 	busy      bool
 	confirm   string
+	detail    *skills.MarketplaceSkill
 	disabled  []string
 	searchFor string
 	searchSeq atomic.Uint64
@@ -67,6 +68,7 @@ type Skills struct {
 		GitHub   key.Binding
 		Confirm  key.Binding
 		Cancel   key.Binding
+		Install  key.Binding
 		Close    key.Binding
 	}
 }
@@ -142,7 +144,13 @@ func NewSkills(com *common.Common, importing bool, query string) *Skills {
 	} else if d.view == clawHubView {
 		d.input.Placeholder = "Search ClawHub"
 	}
-	d.keyMap.Select = key.NewBinding(key.WithKeys("enter", "ctrl+y"), key.WithHelp("enter", "select"))
+	selectAction := "toggle"
+	if importing {
+		selectAction = "import"
+	} else if d.view != installedView {
+		selectAction = "overview"
+	}
+	d.keyMap.Select = key.NewBinding(key.WithKeys("enter", "ctrl+y"), key.WithHelp("enter", selectAction))
 	d.keyMap.Next = key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("↓", "choose"))
 	d.keyMap.Previous = key.NewBinding(key.WithKeys("up", "ctrl+p"), key.WithHelp("↑", "choose"))
 	d.keyMap.Tab = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "switch view"))
@@ -150,6 +158,7 @@ func NewSkills(com *common.Common, importing bool, query string) *Skills {
 	d.keyMap.GitHub = key.NewBinding(key.WithKeys("ctrl+g"), key.WithHelp("ctrl+g", "install GitHub skill"))
 	d.keyMap.Confirm = key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "confirm"))
 	d.keyMap.Cancel = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "cancel"))
+	d.keyMap.Install = key.NewBinding(key.WithKeys("i", "I"), key.WithHelp("I", "install"))
 	d.keyMap.Close = CloseKey
 	if cfg := com.Config(); cfg != nil && cfg.Options != nil {
 		d.disabled = slices.Clone(cfg.Options.DisabledSkills)
@@ -323,9 +332,20 @@ func (d *Skills) handleKey(msg tea.KeyPressMsg) Action {
 			d.status = ""
 			return nil
 		}
+		if d.detail != nil {
+			d.detail = nil
+			return nil
+		}
 		return ActionClose{}
 	}
 	if d.busy {
+		return nil
+	}
+	if d.detail != nil {
+		if key.Matches(msg, d.keyMap.Install) {
+			item := &skillItem{market: d.detail, skill: &skills.Skill{Name: d.detail.Name}}
+			return d.installMarketplace(item)
+		}
 		return nil
 	}
 	if d.confirm != "" {
@@ -368,6 +388,11 @@ func (d *Skills) handleKey(msg tea.KeyPressMsg) Action {
 			d.view = installedView
 			d.input.Placeholder = "Search installed skills"
 		}
+		if d.view == installedView {
+			d.keyMap.Select.SetHelp("enter", "toggle")
+		} else {
+			d.keyMap.Select.SetHelp("enter", "overview")
+		}
 		d.searchFor = ""
 		d.status = ""
 		d.applyFilter()
@@ -385,7 +410,12 @@ func (d *Skills) handleKey(msg tea.KeyPressMsg) Action {
 			return d.importSkill(item)
 		}
 		if d.view != installedView {
-			return d.installMarketplace(item)
+			if item.market == nil {
+				return nil
+			}
+			market := *item.market
+			d.detail = &market
+			return nil
 		}
 		return d.toggleSkill(item)
 	case !d.importing && d.view == installedView && key.Matches(msg, d.keyMap.Delete):
@@ -677,7 +707,41 @@ func (d *Skills) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	d.items.SetSize(innerWidth, height-heightOffset)
 	d.help.SetWidth(innerWidth)
 	rc := NewRenderContext(t, width)
-	if d.importing {
+	if d.detail != nil {
+		rc.Title = "Skill Overview"
+		rc.AddPart(t.Dialog.SelectedItem.Render(d.detail.Name))
+		rc.AddPart(t.Dialog.SecondaryText.Render("Description"))
+		description := strings.TrimSpace(d.detail.Description)
+		if description == "" {
+			description = "No description was provided by the catalog."
+		}
+		rc.AddPart(lipgloss.NewStyle().Width(max(1, innerWidth)).Render(description))
+		rc.AddPart(t.Dialog.SecondaryText.Render("Catalog: " + d.detail.Catalog))
+		location := d.detail.Source
+		if d.detail.Slug != "" {
+			location = strings.Trim(strings.Join([]string{location, d.detail.Slug}, "/"), "/")
+		}
+		if location != "" {
+			rc.AddPart(lipgloss.NewStyle().Width(max(1, innerWidth)).Render("Location: " + location))
+		}
+		rc.AddPart(lipgloss.NewStyle().Width(max(1, innerWidth)).Render("Skill ID: " + d.detail.ID))
+		url := strings.TrimSpace(d.detail.URL)
+		if url == "" {
+			url = strings.TrimSpace(d.detail.InstallURL)
+		}
+		if url != "" {
+			rc.AddPart(lipgloss.NewStyle().Width(max(1, innerWidth)).Render("URL: " + url))
+		} else {
+			rc.AddPart(t.Dialog.SecondaryText.Render("URL: not provided by catalog"))
+		}
+		if d.detail.InstallURL != "" && d.detail.InstallURL != url {
+			rc.AddPart(lipgloss.NewStyle().Width(max(1, innerWidth)).Render("Install URL: " + d.detail.InstallURL))
+		}
+		if d.detail.Installs > 0 {
+			rc.AddPart(t.Dialog.SecondaryText.Render(compactCount(d.detail.Installs) + " installs"))
+		}
+		rc.Help = d.help.View(d)
+	} else if d.importing {
 		rc.Title = "Import Skills"
 		rc.AddPart(t.Dialog.SecondaryText.Render("Choose a skill installed by another coding agent."))
 	} else {
@@ -690,8 +754,10 @@ func (d *Skills) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 			rc.AddPart(t.Dialog.SecondaryText.Render("Enable, disable, or remove Ghost skills."))
 		}
 	}
-	rc.AddPart(t.Dialog.InputPrompt.Render(d.input.View()))
-	if !d.importing {
+	if d.detail == nil {
+		rc.AddPart(t.Dialog.InputPrompt.Render(d.input.View()))
+	}
+	if !d.importing && d.detail == nil {
 		installed := "Installed"
 		marketplace := "skills.sh"
 		clawHub := "ClawHub"
@@ -711,18 +777,27 @@ func (d *Skills) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		}
 		rc.AddPart(lipgloss.JoinHorizontal(lipgloss.Top, installed, marketplace, clawHub))
 	}
-	rc.AddPart(t.Dialog.List.Height(d.items.Height()).Render(d.items.Render()))
-	if d.status != "" {
-		rc.AddPart(t.Dialog.SecondaryText.Render(d.status))
+	if d.detail == nil {
+		rc.AddPart(t.Dialog.List.Height(d.items.Height()).Render(d.items.Render()))
+		if d.status != "" {
+			rc.AddPart(t.Dialog.SecondaryText.Render(d.status))
+		}
+		rc.Help = d.help.View(d)
 	}
-	rc.Help = d.help.View(d)
 	view := rc.Render()
-	cur := d.Cursor()
+	var cur *tea.Cursor
+	if d.detail == nil {
+		cur = d.Cursor()
+	}
 	DrawCenterCursor(scr, area, view, cur)
 	return cur
 }
 
 func (d *Skills) ShortHelp() []key.Binding {
+	if d.detail != nil {
+		back := key.NewBinding(key.WithKeys("esc", "alt+esc"), key.WithHelp("esc", "back"))
+		return []key.Binding{d.keyMap.Install, back}
+	}
 	bindings := []key.Binding{d.keyMap.Previous, d.keyMap.Next, d.keyMap.Select}
 	if !d.importing {
 		bindings = append(bindings, d.keyMap.Tab)
