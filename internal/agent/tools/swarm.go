@@ -95,6 +95,7 @@ type SubAgentRunParams struct {
 	ToolCallID     string
 	Prompt         string
 	SessionTitle   string
+	UseWorktree    bool
 }
 
 type swarmWorkerResult struct {
@@ -195,6 +196,7 @@ func executeSwarm(ctx context.Context, runner SubAgentRunner, sessionID, message
 				ToolCallID:     fmt.Sprintf("%s-worker-%d", callID, index),
 				Prompt:         task,
 				SessionTitle:   fmt.Sprintf("Swarm %d", index+1),
+				UseWorktree:    true,
 			})
 			if err != nil {
 				results[index].Error = err.Error()
@@ -227,6 +229,7 @@ func executeSequential(ctx context.Context, runner SubAgentRunner, sessionID, me
 			ToolCallID:     fmt.Sprintf("%s-phase-%d", callID, i),
 			Prompt:         prompt,
 			SessionTitle:   fmt.Sprintf("Swarm Phase %d", i+1),
+			UseWorktree:    true,
 		})
 		result := swarmWorkerResult{Index: i, Task: task}
 		if err != nil {

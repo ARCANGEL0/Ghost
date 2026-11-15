@@ -1,8 +1,9 @@
-Use this tool to split research or review work across read-only agents. Each worker
-has an isolated session and can inspect the project, but cannot edit files.
+Use this tool to split a task across agents. Planning stays read only. Each task
+worker gets a separate Git worktree and may edit files there. Changes stay in the
+worktree for review and do not change the shared project checkout.
 
-When `subtasks` is omitted, a worker first creates a short plan. Pass `subtasks`
-when you already know which files or questions should be investigated.
+When `subtasks` is omitted, a read only worker first creates a short plan. Pass
+`subtasks` when you already know which work should be split up.
 
 Strategies:
 - `parallel`: independent investigations, up to five workers at once
@@ -10,17 +11,19 @@ Strategies:
 - `compare`: different approaches to the same question
 
 Keep tasks independent for `parallel`. Use `sequential` when a later phase needs
-an earlier result. Read the returned evidence before making changes yourself.
+an earlier result. Review each worktree's changes before integrating them.
+The worker result includes its worktree path and changed files. Remove a worktree
+after review with `git worktree remove <path>`.
 
 Example:
 ```json
 {
-  "task": "Find why startup is slow",
+  "task": "Fix the slow startup path",
   "strategy": "parallel",
   "subtasks": [
-    "Trace config loading and identify expensive file reads",
-    "Trace provider initialization and identify network waits",
-    "Trace UI startup and identify blocking work"
+    "Measure and improve config startup",
+    "Reduce provider initialization waits",
+    "Find and fix blocking UI startup work"
   ]
 }
 ```

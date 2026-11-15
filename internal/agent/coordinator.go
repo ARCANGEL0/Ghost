@@ -14,6 +14,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
@@ -486,6 +487,10 @@ func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderO
 }
 
 func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool) (SessionAgent, error) {
+	return c.buildAgentAt(ctx, prompt, agent, isSubAgent, c.cfg.WorkingDir(), &c.readyWg)
+}
+
+func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool, workingDir string, ready *errgroup.Group) (SessionAgent, error) {
 	large, small, err := c.buildAgentModels(ctx, isSubAgent)
 	if err != nil {
 		return nil, err
@@ -516,7 +521,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Config:               c.cfg,
 	})
 
-	c.readyWg.Go(func() error {
+	ready.Go(func() error {
 		systemPrompt, err := prompt.Build(ctx, large.Model.Provider(), large.Model.Model(), c.cfg)
 		if err != nil {
 			return err
@@ -528,8 +533,8 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		return nil
 	})
 
-	c.readyWg.Go(func() error {
-		tools, err := c.buildTools(ctx, agent)
+	ready.Go(func() error {
+		tools, err := c.buildToolsAt(ctx, agent, workingDir)
 		if err != nil {
 			return err
 		}
@@ -541,6 +546,10 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 }
 
 func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fantasy.AgentTool, error) {
+	return c.buildToolsAt(ctx, agent, c.cfg.WorkingDir())
+}
+
+func (c *coordinator) buildToolsAt(ctx context.Context, agent config.Agent, workingDir string) ([]fantasy.AgentTool, error) {
 	var allTools []fantasy.AgentTool
 	if slices.Contains(agent.AllowedTools, AgentToolName) {
 		agentTool, err := c.agentTool(ctx)
@@ -575,33 +584,33 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 	allTools = append(allTools, pluginAgents...)
 
 	allTools = append(allTools,
-		tools.NewFetchTool(c.permissions, c.cfg.WorkingDir(), nil),
-		tools.NewGlobTool(c.cfg.WorkingDir()),
-		tools.NewGrepTool(c.cfg.WorkingDir(), c.cfg.Config().Tools.Grep),
-		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Ls),
-		tools.NewSemanticSearchTool(c.semIndex, c.cfg.WorkingDir()),
+		tools.NewFetchTool(c.permissions, workingDir, nil),
+		tools.NewGlobTool(workingDir),
+		tools.NewGrepTool(workingDir, c.cfg.Config().Tools.Grep),
+		tools.NewLsTool(c.permissions, workingDir, c.cfg.Config().Tools.Ls),
+		tools.NewSemanticSearchTool(c.semIndex, workingDir),
 		tools.NewSourcegraphTool(nil),
-		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
-		tools.NewSymbolsTool(c.cfg.WorkingDir()),
+		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, workingDir, c.cfg.Config().Options.SkillsPaths...),
+		tools.NewSymbolsTool(workingDir),
 	)
 
 	// Plan mode: read-only tools only
 	planMode := c.cfg.Config().Options.TUI != nil && c.cfg.Config().Options.TUI.PlanMode
 	if !planMode {
 		allTools = append(allTools,
-			tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options, modelName),
+			tools.NewBashTool(c.permissions, workingDir, c.cfg.Config().Options, modelName),
 			tools.NewJobOutputTool(),
 			tools.NewJobKillTool(),
-			tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir(), nil),
-			tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
-			tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
-			tools.NewAtomicEditTool(c.permissions, c.history, c.cfg.WorkingDir()),
+			tools.NewDownloadTool(c.permissions, workingDir, nil),
+			tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, workingDir),
+			tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, workingDir),
+			tools.NewAtomicEditTool(c.permissions, c.history, workingDir),
 			tools.NewMemoryTool(c.cfg),
 			tools.NewTodosTool(c.sessions),
-			tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
-			tools.NewUndoTool(c.permissions, c.history, c.cfg.WorkingDir()),
-			tools.NewTestTool(c.permissions, c.cfg.WorkingDir()),
-			tools.NewScreenshotTool(c.cfg.WorkingDir()),
+			tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, workingDir),
+			tools.NewUndoTool(c.permissions, c.history, workingDir),
+			tools.NewTestTool(c.permissions, workingDir),
+			tools.NewScreenshotTool(workingDir),
 			tools.NewPluginTool(c.pluginLoader),
 			tools.NewFeedbackTool(c.feedbackStore),
 			tools.NewCollabTool(c.collabHub),
@@ -616,7 +625,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		if err != nil {
 			return nil, err
 		}
-		allTools = append(allTools, tools.NewSwarmTool(runner, c.cfg.WorkingDir()))
+		allTools = append(allTools, tools.NewSwarmTool(runner, workingDir))
 	}
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
@@ -639,7 +648,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		}
 	}
 
-	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg, c.cfg.WorkingDir()) {
+	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg, workingDir) {
 		if agent.AllowedMCP == nil {
 			// No MCP restrictions
 			filteredTools = append(filteredTools, tool)
@@ -1278,6 +1287,7 @@ type subAgentParams struct {
 	ToolCallID     string
 	Prompt         string
 	SessionTitle   string
+	WorkspaceDir   string
 	// SessionSetup is an optional callback invoked after session creation
 	// but before agent execution, for custom session configuration.
 	SessionSetup func(sessionID string)
@@ -1333,7 +1343,11 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		return fantasy.ToolResponse{}, err
 	}
 
-	return fantasy.NewTextResponse(result.Response.Content.Text()), nil
+	content := result.Response.Content.Text()
+	if params.WorkspaceDir != "" {
+		content += fmt.Sprintf("\n\nWorktree: %s\nChanged files:\n%s", params.WorkspaceDir, swarmWorktreeStatus(context.WithoutCancel(ctx), params.WorkspaceDir))
+	}
+	return fantasy.NewTextResponse(content), nil
 }
 
 // updateParentSessionCost accumulates the cost from a child session to its parent session.
@@ -1444,6 +1458,7 @@ func (c *coordinator) swarmRunner(ctx context.Context) (tools.SubAgentRunner, er
 	if err != nil {
 		return nil, err
 	}
+	var buildMu sync.Mutex
 	return func(ctx context.Context, params tools.SubAgentRunParams) (fantasy.ToolResponse, error) {
 		select {
 		case c.swarmSlots <- struct{}{}:
@@ -1451,13 +1466,53 @@ func (c *coordinator) swarmRunner(ctx context.Context) (tools.SubAgentRunner, er
 		case <-ctx.Done():
 			return fantasy.ToolResponse{}, ctx.Err()
 		}
+		runWorker := worker
+		workDir := ""
+		if params.UseWorktree {
+			builtWorker, workspace, buildErr := func() (SessionAgent, string, error) {
+				buildMu.Lock()
+				defer buildMu.Unlock()
+
+				workDir, err := createSwarmWorktree(ctx, c.cfg.WorkingDir())
+				if err != nil {
+					return nil, "", err
+				}
+				workerCfg := agentCfg
+				workerCfg.AllowedTools = slices.Clone(agentCfg.AllowedTools)
+				for _, name := range []string{"bash", "edit", "multiedit", "atomic_edit", "write", "test"} {
+					if !slices.Contains(c.cfg.Config().Options.DisabledTools, name) && !slices.Contains(workerCfg.AllowedTools, name) {
+						workerCfg.AllowedTools = append(workerCfg.AllowedTools, name)
+					}
+				}
+				workerPrompt, err := taskPrompt(prompt.WithWorkingDir(workDir))
+				if err != nil {
+					return nil, "", err
+				}
+				var ready errgroup.Group
+				worker, err := c.buildAgentAt(ctx, workerPrompt, workerCfg, true, workDir, &ready)
+				if err != nil {
+					return nil, "", err
+				}
+				if err := ready.Wait(); err != nil {
+					return nil, "", err
+				}
+				return worker, workDir, nil
+			}()
+			if buildErr != nil {
+				return fantasy.ToolResponse{}, buildErr
+			}
+			runWorker = builtWorker
+			workDir = workspace
+			params.Prompt = "Complete this task in your isolated Git worktree. Keep changes uncommitted. Report files changed and checks run.\n\n" + params.Prompt
+		}
 		return c.runSubAgent(ctx, subAgentParams{
-			Agent:          worker,
+			Agent:          runWorker,
 			SessionID:      params.SessionID,
 			AgentMessageID: params.AgentMessageID,
 			ToolCallID:     params.ToolCallID,
 			Prompt:         params.Prompt,
 			SessionTitle:   params.SessionTitle,
+			WorkspaceDir:   workDir,
 		})
 	}, nil
 }
