@@ -28,15 +28,6 @@ func (c *coordinator) agentTool(ctx context.Context) (fantasy.AgentTool, error) 
 	if !ok {
 		return nil, errors.New("task agent not configured")
 	}
-	prompt, err := taskPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
-	if err != nil {
-		return nil, err
-	}
-
-	agent, err := c.buildAgent(ctx, prompt, agentCfg, true)
-	if err != nil {
-		return nil, err
-	}
 	return fantasy.NewParallelAgentTool(
 		AgentToolName,
 		string(agentToolDescription),
@@ -53,6 +44,14 @@ func (c *coordinator) agentTool(ctx context.Context) (fantasy.AgentTool, error) 
 			agentMessageID := tools.GetMessageFromContext(ctx)
 			if agentMessageID == "" {
 				return fantasy.ToolResponse{}, errors.New("agent message id missing from context")
+			}
+			workerPrompt, err := taskPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+			if err != nil {
+				return fantasy.ToolResponse{}, err
+			}
+			agent, err := c.buildTaskAgent(ctx, workerPrompt, agentCfg, c.cfg.WorkingDir(), params.Prompt, true)
+			if err != nil {
+				return fantasy.ToolResponse{}, err
 			}
 
 			return c.runSubAgent(ctx, subAgentParams{

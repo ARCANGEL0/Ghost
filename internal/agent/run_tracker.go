@@ -17,6 +17,7 @@ type AgentRun struct {
 	ParentID     string
 	SessionID    string
 	Title        string
+	TaskType     string
 	Prompt       string
 	Provider     string
 	Model        string
@@ -78,6 +79,7 @@ func (t *runTracker) start(sessionID, parentID, title, prompt string, model Mode
 			ParentID:  parentID,
 			SessionID: sessionID,
 			Title:     title,
+			TaskType:  taskKindOf(prompt),
 			Prompt:    prompt,
 			Provider:  model.ModelCfg.Provider,
 			Model:     model.ModelCfg.Model,

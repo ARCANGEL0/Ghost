@@ -120,7 +120,7 @@ func (r *Runs) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		start := max(0, min(r.selected-rows/2, len(r.runs)-rows))
 		for i := start; i < min(start+rows, len(r.runs)); i++ {
 			run := r.runs[i]
-			line := fmt.Sprintf("%s  %s · %s/%s · %s", run.State, run.Title, run.Provider, run.Model, run.Duration.Round(time.Second))
+			line := fmt.Sprintf("%s  %s · %s · %s/%s · %s", run.State, run.Title, run.TaskType, run.Provider, run.Model, run.Duration.Round(time.Second))
 			if i == r.selected {
 				line = sty.Dialog.SelectedItem.Width(innerWidth).Render(line)
 			} else {

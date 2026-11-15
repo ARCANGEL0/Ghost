@@ -115,6 +115,7 @@ type coordinator struct {
 	paneCtrl      PaneController
 	swarmSlots    chan struct{}
 	runs          *runTracker
+	toolsBuildMu  sync.Mutex
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
@@ -508,13 +509,24 @@ func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderO
 }
 
 func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool) (SessionAgent, error) {
-	return c.buildAgentAt(ctx, prompt, agent, isSubAgent, c.cfg.WorkingDir(), &c.readyWg)
+	return c.buildAgentAt(ctx, prompt, agent, isSubAgent, c.cfg.WorkingDir(), "", false, &c.readyWg)
 }
 
-func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool, workingDir string, ready *errgroup.Group) (SessionAgent, error) {
+func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool, workingDir, routeTask string, needsTools bool, ready *errgroup.Group) (SessionAgent, error) {
 	large, small, err := c.buildAgentModels(ctx, isSubAgent)
 	if err != nil {
 		return nil, err
+	}
+	if routeTask != "" {
+		picked := c.routeTaskModel(routeTask, large, small, needsTools)
+		if picked.ModelCfg.Provider == small.ModelCfg.Provider && picked.ModelCfg.Model == small.ModelCfg.Model {
+			agent.Model = config.SelectedModelTypeSmall
+		} else {
+			agent.Model = config.SelectedModelTypeLarge
+		}
+		large = picked
+	} else if agent.Model == config.SelectedModelTypeSmall {
+		large = small
 	}
 
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
@@ -567,11 +579,29 @@ func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, a
 	return result, nil
 }
 
+func (c *coordinator) buildTaskAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, workingDir, task string, needsTools bool) (SessionAgent, error) {
+	var ready errgroup.Group
+	worker, err := c.buildAgentAt(ctx, prompt, agent, true, workingDir, task, needsTools, &ready)
+	if err != nil {
+		return nil, err
+	}
+	if err := ready.Wait(); err != nil {
+		return nil, err
+	}
+	return worker, nil
+}
+
 func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fantasy.AgentTool, error) {
 	return c.buildToolsAt(ctx, agent, c.cfg.WorkingDir())
 }
 
 func (c *coordinator) buildToolsAt(ctx context.Context, agent config.Agent, workingDir string) ([]fantasy.AgentTool, error) {
+	c.toolsBuildMu.Lock()
+	defer c.toolsBuildMu.Unlock()
+	return c.buildToolsLocked(ctx, agent, workingDir)
+}
+
+func (c *coordinator) buildToolsLocked(ctx context.Context, agent config.Agent, workingDir string) ([]fantasy.AgentTool, error) {
 	var allTools []fantasy.AgentTool
 	if slices.Contains(agent.AllowedTools, AgentToolName) {
 		agentTool, err := c.agentTool(ctx)
@@ -1509,11 +1539,6 @@ func (c *coordinator) swarmRunner(ctx context.Context) (tools.SubAgentRunner, er
 	if err != nil {
 		return nil, err
 	}
-	worker, err := c.buildAgent(ctx, agentPrompt, agentCfg, true)
-	if err != nil {
-		return nil, err
-	}
-	var buildMu sync.Mutex
 	return func(ctx context.Context, params tools.SubAgentRunParams) (fantasy.ToolResponse, error) {
 		select {
 		case c.swarmSlots <- struct{}{}:
@@ -1521,44 +1546,33 @@ func (c *coordinator) swarmRunner(ctx context.Context) (tools.SubAgentRunner, er
 		case <-ctx.Done():
 			return fantasy.ToolResponse{}, ctx.Err()
 		}
-		runWorker := worker
+		workerCfg := agentCfg
+		workerPrompt := agentPrompt
 		workDir := ""
+		needsTools := false
 		if params.UseWorktree {
-			builtWorker, workspace, buildErr := func() (SessionAgent, string, error) {
-				buildMu.Lock()
-				defer buildMu.Unlock()
-
-				workDir, err := createSwarmWorktree(ctx, c.cfg.WorkingDir())
-				if err != nil {
-					return nil, "", err
-				}
-				workerCfg := agentCfg
-				workerCfg.AllowedTools = slices.Clone(agentCfg.AllowedTools)
-				for _, name := range []string{"bash", "edit", "multiedit", "atomic_edit", "write", "test"} {
-					if !slices.Contains(c.cfg.Config().Options.DisabledTools, name) && !slices.Contains(workerCfg.AllowedTools, name) {
-						workerCfg.AllowedTools = append(workerCfg.AllowedTools, name)
-					}
-				}
-				workerPrompt, err := taskPrompt(prompt.WithWorkingDir(workDir))
-				if err != nil {
-					return nil, "", err
-				}
-				var ready errgroup.Group
-				worker, err := c.buildAgentAt(ctx, workerPrompt, workerCfg, true, workDir, &ready)
-				if err != nil {
-					return nil, "", err
-				}
-				if err := ready.Wait(); err != nil {
-					return nil, "", err
-				}
-				return worker, workDir, nil
-			}()
-			if buildErr != nil {
-				return fantasy.ToolResponse{}, buildErr
+			workspace, createErr := createSwarmWorktree(ctx, c.cfg.WorkingDir())
+			if createErr != nil {
+				return fantasy.ToolResponse{}, createErr
 			}
-			runWorker = builtWorker
 			workDir = workspace
+			workerCfg.AllowedTools = slices.Clone(agentCfg.AllowedTools)
+			for _, name := range []string{"bash", "edit", "multiedit", "atomic_edit", "write", "test"} {
+				if !slices.Contains(c.cfg.Config().Options.DisabledTools, name) && !slices.Contains(workerCfg.AllowedTools, name) {
+					workerCfg.AllowedTools = append(workerCfg.AllowedTools, name)
+				}
+			}
+			promptTmpl, promptErr := taskPrompt(prompt.WithWorkingDir(workDir))
+			if promptErr != nil {
+				return fantasy.ToolResponse{}, promptErr
+			}
+			workerPrompt = promptTmpl
+			needsTools = true
 			params.Prompt = "Complete this task in your isolated Git worktree. Keep changes uncommitted. Report files changed and checks run.\n\n" + params.Prompt
+		}
+		runWorker, err := c.buildTaskAgent(ctx, workerPrompt, workerCfg, cmp.Or(workDir, c.cfg.WorkingDir()), params.Prompt, needsTools)
+		if err != nil {
+			return fantasy.ToolResponse{}, err
 		}
 		return c.runSubAgent(ctx, subAgentParams{
 			Agent:          runWorker,

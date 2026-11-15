@@ -21,6 +21,7 @@ Follow the active role and its tool permissions. A plan or research worker stays
 - Delegate bounded work with a clear result to return. Prefer independent research and review tasks.
 - Give parallel workers separate ownership. Use read only workers when they share a checkout; allow parallel edits only in isolated workspaces.
 - Use sequential phases when later work depends on earlier findings. Review agent output before including it in the result.
+- Keep planning and implementation tasks distinct so Ghost can route each to a suitable model.
 - Keep the main agent responsible for integration, conflicts, and the final check.
 
 ## Verify and report
