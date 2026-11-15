@@ -68,6 +68,7 @@ var thinkTagRegex = regexp.MustCompile(`<think>.*?</think>`)
 
 type SessionAgentCall struct {
 	SessionID        string
+	RunID            string
 	Prompt           string
 	ProviderOptions  fantasy.ProviderOptions
 	Attachments      []message.Attachment
@@ -116,6 +117,7 @@ type sessionAgent struct {
 	isYolo               bool
 	notify               pubsub.Publisher[notify.Notification]
 	cfg                  *config.ConfigStore
+	runs                 *runTracker
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
@@ -138,6 +140,7 @@ type SessionAgentOptions struct {
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
 	Config               *config.ConfigStore
+	Runs                 *runTracker
 }
 
 func NewSessionAgent(
@@ -160,6 +163,7 @@ func NewSessionAgent(
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		verificationRetries:  make(map[string]int),
 		hooks:                newHookRunner(opts.Config),
+		runs:                 opts.Runs,
 	}
 }
 
@@ -281,6 +285,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+			if err := a.runs.wait(callContext, call.RunID); err != nil {
+				return callContext, prepared, err
+			}
 			verifyBatch.reset()
 			prepared.Messages = options.Messages
 			for i := range prepared.Messages {
@@ -390,9 +397,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			return a.messages.Update(ctx, *currentAssistant)
 		},
 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
-			// TODO: implement
+			a.runs.retry(call.RunID)
 		},
 		OnToolCall: func(tc fantasy.ToolCallContent) error {
+			a.runs.toolCall(call.RunID)
 			if !tc.ProviderExecuted && !tc.Invalid && isVerifiedWriteTool(tc.ToolName) {
 				verifyBatch.add(tc.ToolCallID)
 			}
@@ -439,6 +447,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				return getSessionErr
 			}
 			a.updateSessionUsage(largeModel, &updatedSession, stepResult.Usage, a.openrouterCost(stepResult.ProviderMetadata))
+			stepCost := modelUsageCost(largeModel, stepResult.Usage)
+			if override := a.openrouterCost(stepResult.ProviderMetadata); override != nil {
+				stepCost = *override
+			}
+			a.runs.usage(call.RunID, stepResult.Usage, stepCost)
 			_, sessionErr := a.sessions.Save(ctx, updatedSession)
 			if sessionErr != nil {
 				return sessionErr
@@ -992,11 +1005,7 @@ func (a *sessionAgent) openrouterCost(metadata fantasy.ProviderMetadata) *float6
 }
 
 func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session, usage fantasy.Usage, overrideCost *float64) {
-	modelConfig := model.CatwalkCfg
-	cost := modelConfig.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
-		modelConfig.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +
-		modelConfig.CostPer1MIn/1e6*float64(usage.InputTokens) +
-		modelConfig.CostPer1MOut/1e6*float64(usage.OutputTokens)
+	cost := modelUsageCost(model, usage)
 
 	a.eventTokensUsed(session.ID, model, usage, cost)
 
@@ -1008,6 +1017,14 @@ func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session,
 
 	session.CompletionTokens = usage.OutputTokens
 	session.PromptTokens = usage.InputTokens + usage.CacheReadTokens
+}
+
+func modelUsageCost(model Model, usage fantasy.Usage) float64 {
+	modelCfg := model.CatwalkCfg
+	return modelCfg.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
+		modelCfg.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +
+		modelCfg.CostPer1MIn/1e6*float64(usage.InputTokens) +
+		modelCfg.CostPer1MOut/1e6*float64(usage.OutputTokens)
 }
 
 func (a *sessionAgent) Cancel(sessionID string) {

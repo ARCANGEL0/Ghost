@@ -69,6 +69,11 @@ var (
 
 type Coordinator interface {
 	Run(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
+	Runs() []AgentRun
+	PauseRun(runID string) error
+	ResumeRun(runID string) error
+	CancelRun(runID string) error
+	RetryRun(ctx context.Context, runID string) error
 	Cancel(sessionID string)
 	CancelAll()
 	SetPaneController(PaneController)
@@ -109,6 +114,7 @@ type coordinator struct {
 	collabHub     *collab.Hub
 	paneCtrl      PaneController
 	swarmSlots    chan struct{}
+	runs          *runTracker
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
@@ -144,6 +150,7 @@ func NewCoordinator(
 		feedbackStore: initFeedbackStore(cfg.WorkingDir()),
 		collabHub:     collab.NewHub(),
 		swarmSlots:    make(chan struct{}, 5),
+		runs:          newRunTracker(),
 	}
 
 	// Start file watcher to detect external changes
@@ -278,10 +285,15 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			return nil, err
 		}
 	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	runID := c.runs.start(sessionID, parentRunID(ctx), "Ghost", prompt, model, cancelRun)
+	runCtx = withRunID(runCtx, runID)
+	defer cancelRun()
 
 	run := func() (*fantasy.AgentResult, error) {
-		return c.currentAgent.Run(ctx, SessionAgentCall{
+		return c.currentAgent.Run(runCtx, SessionAgentCall{
 			SessionID:        sessionID,
+			RunID:            runID,
 			Prompt:           prompt,
 			Attachments:      attachments,
 			MaxOutputTokens:  maxTokens,
@@ -304,20 +316,29 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		case providerCfg.OAuthToken != nil:
 			slog.Debug("Received 401. Refreshing token and retrying", "provider", providerCfg.ID)
 			if err := c.refreshOAuth2Token(ctx, providerCfg); err != nil {
+				c.runs.finish(runID, originalErr)
 				return nil, originalErr
 			}
 			slog.Debug("Retrying request with refreshed OAuth token", "provider", providerCfg.ID)
-			return run()
+			result, retryErr := run()
+			c.runs.retry(runID)
+			c.runs.finish(runID, retryErr)
+			return result, retryErr
 		case strings.Contains(providerCfg.APIKeyTemplate, "$"):
 			slog.Debug("Received 401. Refreshing API Key template and retrying", "provider", providerCfg.ID)
 			if err := c.refreshApiKeyTemplate(ctx, providerCfg); err != nil {
+				c.runs.finish(runID, originalErr)
 				return nil, originalErr
 			}
 			slog.Debug("Retrying request with refreshed API key", "provider", providerCfg.ID)
-			return run()
+			result, retryErr := run()
+			c.runs.retry(runID)
+			c.runs.finish(runID, retryErr)
+			return result, retryErr
 		}
 	}
 
+	c.runs.finish(runID, originalErr)
 	return result, originalErr
 }
 
@@ -519,6 +540,7 @@ func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, a
 		Tools:                nil,
 		Notify:               c.notify,
 		Config:               c.cfg,
+		Runs:                 c.runs,
 	})
 
 	ready.Go(func() error {
@@ -1210,6 +1232,31 @@ func (c *coordinator) Model() Model {
 	return c.currentAgent.Model()
 }
 
+func (c *coordinator) Runs() []AgentRun {
+	return c.runs.list()
+}
+
+func (c *coordinator) PauseRun(runID string) error {
+	return c.runs.pause(runID)
+}
+
+func (c *coordinator) ResumeRun(runID string) error {
+	return c.runs.resume(runID)
+}
+
+func (c *coordinator) CancelRun(runID string) error {
+	return c.runs.cancelRun(runID)
+}
+
+func (c *coordinator) RetryRun(ctx context.Context, runID string) error {
+	run, ok := c.runs.get(runID)
+	if !ok || run.ParentID != "" || run.State == "running" || run.State == "paused" {
+		return errors.New("run cannot be retried")
+	}
+	_, err := c.Run(ctx, run.SessionID, run.Prompt)
+	return err
+}
+
 func (c *coordinator) UpdateModels(ctx context.Context) error {
 	// build the models again so we make sure we get the latest config
 	large, small, err := c.buildAgentModels(ctx, false)
@@ -1321,9 +1368,14 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
 	}
 
-	// Run the agent
-	result, err := params.Agent.Run(ctx, SessionAgentCall{
+	runCtx, cancelRun := context.WithCancel(ctx)
+	runID := c.runs.start(session.ID, parentRunID(ctx), params.SessionTitle, params.Prompt, model, cancelRun)
+	runCtx = withRunID(runCtx, runID)
+	defer cancelRun()
+
+	result, err := params.Agent.Run(runCtx, SessionAgentCall{
 		SessionID:        session.ID,
+		RunID:            runID,
 		Prompt:           params.Prompt,
 		MaxOutputTokens:  maxTokens,
 		ProviderOptions:  getProviderOptions(model, providerCfg),
@@ -1335,17 +1387,20 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		NonInteractive:   true,
 	})
 	if err != nil {
+		c.runs.finish(runID, err)
 		return fantasy.NewTextErrorResponse("error generating response"), nil
 	}
 
 	// Update parent session cost
-	if err := c.updateParentSessionCost(ctx, session.ID, params.SessionID); err != nil {
+	if err := c.updateParentSessionCost(runCtx, session.ID, params.SessionID); err != nil {
+		c.runs.finish(runID, err)
 		return fantasy.ToolResponse{}, err
 	}
+	c.runs.finish(runID, nil)
 
 	content := result.Response.Content.Text()
 	if params.WorkspaceDir != "" {
-		content += fmt.Sprintf("\n\nWorktree: %s\nChanged files:\n%s", params.WorkspaceDir, swarmWorktreeStatus(context.WithoutCancel(ctx), params.WorkspaceDir))
+		content += fmt.Sprintf("\n\nWorktree: %s\nChanged files:\n%s", params.WorkspaceDir, swarmWorktreeStatus(context.WithoutCancel(runCtx), params.WorkspaceDir))
 	}
 	return fantasy.NewTextResponse(content), nil
 }

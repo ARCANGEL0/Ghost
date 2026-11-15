@@ -3248,6 +3248,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openModelsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.RunsID:
+		if cmd := m.openRunsDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.CommandsID:
 		if cmd := m.openCommandsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -3566,6 +3570,16 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	m.dialog.OpenDialog(commands)
 
 	return commands.InitialCmd()
+}
+
+func (m *UI) openRunsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.RunsID) {
+		m.dialog.BringToFront(dialog.RunsID)
+		return nil
+	}
+	runs := dialog.NewRuns(m.com)
+	m.dialog.OpenDialog(runs)
+	return runs.InitialCmd()
 }
 
 // openReasoningDialog opens the reasoning effort dialog.
@@ -4078,6 +4092,8 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 	var cmds []tea.Cmd
 
 	switch cmd {
+	case "runs":
+		return m.openRunsDialog()
 	case "undo":
 		return m.handleUndo()
 	case "redo":
