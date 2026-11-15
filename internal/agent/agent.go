@@ -188,7 +188,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	a.verificationMu.Unlock()
 
 	// Copy mutable fields under lock to avoid races with SetTools/SetModels.
-	agentTools := a.wrapToolsWithHooks(call.SessionID, a.wrapToolsWithVerification(ctx, call.SessionID, a.tools.Copy()))
+	verifyBatch := &verificationBatch{}
+	agentTools := a.wrapToolsWithVerificationBatch(ctx, call.SessionID, a.wrapToolsWithHooks(call.SessionID, a.tools.Copy()), verifyBatch)
 	largeModel := a.largeModel.Get()
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
@@ -280,13 +281,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+			verifyBatch.reset()
 			prepared.Messages = options.Messages
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
 			}
 
 			// Use latest tools (updated by SetTools when MCP tools change).
-			prepared.Tools = a.wrapToolsWithHooks(call.SessionID, a.wrapToolsWithVerification(callContext, call.SessionID, a.tools.Copy()))
+			prepared.Tools = a.wrapToolsWithVerificationBatch(callContext, call.SessionID, a.wrapToolsWithHooks(call.SessionID, a.tools.Copy()), verifyBatch)
 
 			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
 			a.messageQueue.Del(call.SessionID)
@@ -391,6 +393,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			// TODO: implement
 		},
 		OnToolCall: func(tc fantasy.ToolCallContent) error {
+			if !tc.ProviderExecuted && !tc.Invalid && isVerifiedWriteTool(tc.ToolName) {
+				verifyBatch.add(tc.ToolCallID)
+			}
 			toolCall := message.ToolCall{
 				ID:               tc.ToolCallID,
 				Name:             tc.ToolName,

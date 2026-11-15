@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/fantasy"
@@ -66,10 +67,61 @@ type verificationWrappedTool struct {
 	fantasy.AgentTool
 	a         *sessionAgent
 	sessionID string
+	batch     *verificationBatch
+}
+
+type verificationBatch struct {
+	mu      sync.Mutex
+	pending map[string]struct{}
+	dirty   bool
+}
+
+func (b *verificationBatch) reset() {
+	b.mu.Lock()
+	b.pending = make(map[string]struct{})
+	b.dirty = false
+	b.mu.Unlock()
+}
+
+func (b *verificationBatch) add(id string) {
+	if id == "" {
+		return
+	}
+	b.mu.Lock()
+	if b.pending == nil {
+		b.pending = make(map[string]struct{})
+	}
+	b.pending[id] = struct{}{}
+	b.mu.Unlock()
+}
+
+func (b *verificationBatch) finish(id string, changed bool) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.pending[id]; !ok {
+		return false
+	}
+	delete(b.pending, id)
+	b.dirty = b.dirty || changed
+	if len(b.pending) > 0 || !b.dirty {
+		return false
+	}
+	b.dirty = false
+	return true
 }
 
 func (w *verificationWrappedTool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolResponse, error) {
 	resp, err := w.AgentTool.Run(ctx, params)
+	if w.batch != nil {
+		verify := w.batch.finish(params.ID, err == nil && !resp.IsError)
+		if verify {
+			checked, checkErr := w.verify(ctx)
+			if checkErr != nil || checked.IsError {
+				return checked, checkErr
+			}
+		}
+		return resp, err
+	}
 	if err != nil || resp.IsError {
 		return resp, err
 	}
@@ -83,6 +135,21 @@ func (w *verificationWrappedTool) Run(ctx context.Context, params fantasy.ToolCa
 		return resp, nil
 	}
 
+	checked, checkErr := w.verify(ctx)
+	if checkErr != nil || checked.IsError {
+		return checked, checkErr
+	}
+	return resp, nil
+}
+
+func (w *verificationWrappedTool) verify(ctx context.Context) (fantasy.ToolResponse, error) {
+	if w.a.cfg == nil {
+		return fantasy.ToolResponse{}, nil
+	}
+	if w.a.cfg.Config().Options.VerificationCommand == "" {
+		return fantasy.ToolResponse{}, nil
+	}
+
 	maxRetries := w.a.cfg.Config().Options.MaxVerificationRetries
 	if maxRetries <= 0 {
 		maxRetries = 3
@@ -94,17 +161,17 @@ func (w *verificationWrappedTool) Run(ctx context.Context, params fantasy.ToolCa
 
 	if retries >= maxRetries {
 		slog.Warn("Max verification retries reached, returning original result", "retries", retries, "sessionID", w.sessionID)
-		return resp, nil
+		return fantasy.ToolResponse{}, nil
 	}
 
 	// Run verification command
 	ok, out, err := w.a.VerifyBuild(ctx)
 	if err != nil {
-		return resp, err
+		return fantasy.ToolResponse{}, err
 	}
 
 	if ok {
-		return resp, nil
+		return fantasy.ToolResponse{}, nil
 	}
 
 	// Increment retry counter
@@ -119,6 +186,10 @@ func (w *verificationWrappedTool) Run(ctx context.Context, params fantasy.ToolCa
 }
 
 func (a *sessionAgent) wrapToolsWithVerification(ctx context.Context, sessionID string, tools []fantasy.AgentTool) []fantasy.AgentTool {
+	return a.wrapToolsWithVerificationBatch(ctx, sessionID, tools, nil)
+}
+
+func (a *sessionAgent) wrapToolsWithVerificationBatch(ctx context.Context, sessionID string, tools []fantasy.AgentTool, batch *verificationBatch) []fantasy.AgentTool {
 	if a.cfg == nil {
 		return tools
 	}
@@ -130,15 +201,25 @@ func (a *sessionAgent) wrapToolsWithVerification(ctx context.Context, sessionID 
 	wrapped := make([]fantasy.AgentTool, len(tools))
 	for i, t := range tools {
 		name := t.Info().Name
-		if name == "edit" || name == "write" || name == "multiedit" || name == "atomic_edit" {
+		if isVerifiedWriteTool(name) {
 			wrapped[i] = &verificationWrappedTool{
 				AgentTool: t,
 				a:         a,
 				sessionID: sessionID,
+				batch:     batch,
 			}
 		} else {
 			wrapped[i] = t
 		}
 	}
 	return wrapped
+}
+
+func isVerifiedWriteTool(name string) bool {
+	switch name {
+	case "edit", "write", "multiedit", "atomic_edit":
+		return true
+	default:
+		return false
+	}
 }
