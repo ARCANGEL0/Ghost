@@ -1,25 +1,26 @@
-Spawn a swarm of parallel AI workers to tackle complex tasks simultaneously.
-Use this for tasks that benefit from multiple perspectives, parallel research, or comprehensive coverage.
+Use this tool to split research or review work across read-only agents. Each worker
+has an isolated session and can inspect the project, but cannot edit files.
 
-**Strategies:**
-- `parallel` (default): Workers tackle different aspects simultaneously (research, planning, edge cases, testing)
-- `divide_conquer`: Workers handle sequential phases (research → design → implementation → testing)
-- `compare`: Workers produce different approaches to the same problem for comparison
+When `subtasks` is omitted, a worker first creates a short plan. Pass `subtasks`
+when you already know which files or questions should be investigated.
 
-**When to use:**
-- Complex multi-faceted problems requiring diverse analysis
-- Research tasks where multiple angles are valuable
-- Comparing different solution approaches
-- Comprehensive code reviews from multiple perspectives
-- Generating test cases, documentation, and implementation in parallel
+Strategies:
+- `parallel`: independent investigations, up to five workers at once
+- `sequential`: ordered phases; each phase receives the earlier findings
+- `compare`: different approaches to the same question
 
-**Parameters:**
-- `task`: The main task to decompose and execute
-- `workers`: Number of parallel workers (1-5, default: 3)
-- `strategy`: Decomposition strategy (parallel|divide_conquer|compare)
-- `subtasks`: Optional pre-defined subtasks (if omitted, auto-decomposed)
+Keep tasks independent for `parallel`. Use `sequential` when a later phase needs
+an earlier result. Read the returned evidence before making changes yourself.
 
-**Example:**
+Example:
 ```json
-{"task": "Design a REST API for user management", "workers": 4, "strategy": "parallel"}
+{
+  "task": "Find why startup is slow",
+  "strategy": "parallel",
+  "subtasks": [
+    "Trace config loading and identify expensive file reads",
+    "Trace provider initialization and identify network waits",
+    "Trace UI startup and identify blocking work"
+  ]
+}
 ```

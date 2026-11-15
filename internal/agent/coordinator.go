@@ -107,6 +107,7 @@ type coordinator struct {
 	feedbackStore *feedback.Store
 	collabHub     *collab.Hub
 	paneCtrl      PaneController
+	swarmSlots    chan struct{}
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
@@ -141,6 +142,7 @@ func NewCoordinator(
 		pluginLoader:  plugin.NewLoader(cfg.WorkingDir()),
 		feedbackStore: initFeedbackStore(cfg.WorkingDir()),
 		collabHub:     collab.NewHub(),
+		swarmSlots:    make(chan struct{}, 5),
 	}
 
 	// Start file watcher to detect external changes
@@ -599,7 +601,6 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 			tools.NewUndoTool(c.permissions, c.history, c.cfg.WorkingDir()),
 			tools.NewTestTool(c.permissions, c.cfg.WorkingDir()),
 			tools.NewScreenshotTool(c.cfg.WorkingDir()),
-			tools.NewSwarmTool(c.swarmRunner(), c.cfg.WorkingDir()),
 			tools.NewPluginTool(c.pluginLoader),
 			tools.NewFeedbackTool(c.feedbackStore),
 			tools.NewCollabTool(c.collabHub),
@@ -608,6 +609,13 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 	} else {
 		// In plan mode, add a system prompt prefix indicating read-only mode
 		slog.Info("Plan mode enabled: only read-only tools available")
+	}
+	if !planMode && slices.Contains(agent.AllowedTools, tools.SwarmToolName) {
+		runner, err := c.swarmRunner(ctx)
+		if err != nil {
+			return nil, err
+		}
+		allTools = append(allTools, tools.NewSwarmTool(runner, c.cfg.WorkingDir()))
 	}
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
@@ -1422,17 +1430,35 @@ func (c *coordinator) getConversationMessages(ctx context.Context, sessionID str
 }
 
 // swarmRunner returns a SubAgentRunner function for use by the swarm tool.
-func (c *coordinator) swarmRunner() tools.SubAgentRunner {
+func (c *coordinator) swarmRunner(ctx context.Context) (tools.SubAgentRunner, error) {
+	agentCfg, ok := c.cfg.Config().Agents[config.AgentTask]
+	if !ok {
+		return nil, errors.New("task agent not configured")
+	}
+	agentPrompt, err := taskPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	if err != nil {
+		return nil, err
+	}
+	worker, err := c.buildAgent(ctx, agentPrompt, agentCfg, true)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, params tools.SubAgentRunParams) (fantasy.ToolResponse, error) {
+		select {
+		case c.swarmSlots <- struct{}{}:
+			defer func() { <-c.swarmSlots }()
+		case <-ctx.Done():
+			return fantasy.ToolResponse{}, ctx.Err()
+		}
 		return c.runSubAgent(ctx, subAgentParams{
-			Agent:          c.currentAgent,
+			Agent:          worker,
 			SessionID:      params.SessionID,
 			AgentMessageID: params.AgentMessageID,
 			ToolCallID:     params.ToolCallID,
 			Prompt:         params.Prompt,
 			SessionTitle:   params.SessionTitle,
 		})
-	}
+	}, nil
 }
 
 // loadPlugins discovers and loads all plugins in the background.

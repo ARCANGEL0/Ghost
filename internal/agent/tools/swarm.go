@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,23 +14,25 @@ import (
 //go:embed swarm.md
 var swarmDescription []byte
 
-const SwarmToolName = "swarm"
+const (
+	SwarmToolName   = "swarm"
+	maxSwarmWorkers = 5
+	maxSwarmTasks   = 12
+)
 
-// SwarmParams defines the parameters for spawning a swarm of worker agents.
 type SwarmParams struct {
-	Task     string   `json:"task" description:"The main task to be decomposed and executed by the swarm"`
-	Workers  int      `json:"workers,omitempty" description:"Number of parallel workers (default: 3, max: 5)"`
-	Strategy string   `json:"strategy,omitempty" description:"Decomposition strategy: 'parallel' (default), 'divide_conquer', or 'compare'"`
-	Subtasks []string `json:"subtasks,omitempty" description:"Optional: pre-defined subtasks. If empty, the task will be decomposed automatically."`
+	Task     string   `json:"task" description:"The task to delegate"`
+	Workers  int      `json:"workers,omitempty" description:"Maximum parallel workers, from 1 to 5"`
+	Strategy string   `json:"strategy,omitempty" description:"parallel, sequential, or compare"`
+	Subtasks []string `json:"subtasks,omitempty" description:"Specific tasks to run; Ghost creates a plan when omitted"`
 }
 
-// NewSwarmTool creates a swarm tool that spawns parallel worker agents.
-func NewSwarmTool(runSubAgent SubAgentRunner, workingDir string) fantasy.AgentTool {
+func NewSwarmTool(runSubAgent SubAgentRunner, _ string) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		SwarmToolName,
 		string(swarmDescription),
 		func(ctx context.Context, params SwarmParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			if params.Task == "" {
+			if strings.TrimSpace(params.Task) == "" {
 				return fantasy.NewTextErrorResponse("task is required"), nil
 			}
 
@@ -37,51 +40,55 @@ func NewSwarmTool(runSubAgent SubAgentRunner, workingDir string) fantasy.AgentTo
 			if workers <= 0 {
 				workers = 3
 			}
-			if workers > 5 {
-				workers = 5
+			if workers > maxSwarmWorkers {
+				workers = maxSwarmWorkers
 			}
 
 			strategy := params.Strategy
 			if strategy == "" {
 				strategy = "parallel"
 			}
+			if strategy == "divide_conquer" {
+				strategy = "sequential"
+			}
+			if strategy != "parallel" && strategy != "sequential" && strategy != "compare" {
+				return fantasy.NewTextErrorResponse("strategy must be parallel, sequential, or compare"), nil
+			}
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
 				return fantasy.ToolResponse{}, fmt.Errorf("session id missing from context")
 			}
-
 			agentMessageID := GetMessageFromContext(ctx)
 			if agentMessageID == "" {
 				return fantasy.ToolResponse{}, fmt.Errorf("agent message id missing from context")
 			}
 
-			// Decompose task into subtasks if not provided
-			subtasks := params.Subtasks
+			subtasks := cleanSubtasks(params.Subtasks)
 			if len(subtasks) == 0 {
-				subtasks = decomposeTask(params.Task, workers, strategy)
+				var err error
+				subtasks, err = planSubtasks(ctx, runSubAgent, sessionID, agentMessageID, call.ID, params.Task, workers, strategy)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(err.Error()), nil
+				}
+			}
+			if len(subtasks) > maxSwarmTasks {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("a swarm can run up to %d tasks", maxSwarmTasks)), nil
 			}
 
-			// Limit to worker count
-			if len(subtasks) > workers {
-				subtasks = subtasks[:workers]
+			var results []swarmWorkerResult
+			if strategy == "sequential" {
+				results = executeSequential(ctx, runSubAgent, sessionID, agentMessageID, call.ID, subtasks)
+			} else {
+				results = executeSwarm(ctx, runSubAgent, sessionID, agentMessageID, call.ID, subtasks, workers)
 			}
-
-			// Execute workers in parallel
-			results := executeSwarm(ctx, runSubAgent, sessionID, agentMessageID, call.ID, subtasks, strategy)
-
-			// Merge results based on strategy
-			merged := mergeResults(results, strategy)
-
-			return fantasy.NewTextResponse(merged), nil
+			return fantasy.NewTextResponse(mergeResults(results, strategy)), nil
 		},
 	)
 }
 
-// SubAgentRunner is the interface for running sub-agents.
 type SubAgentRunner func(ctx context.Context, params SubAgentRunParams) (fantasy.ToolResponse, error)
 
-// SubAgentRunParams holds the parameters for running a sub-agent.
 type SubAgentRunParams struct {
 	SessionID      string
 	AgentMessageID string
@@ -90,7 +97,6 @@ type SubAgentRunParams struct {
 	SessionTitle   string
 }
 
-// swarmWorkerResult holds the result from a single swarm worker.
 type swarmWorkerResult struct {
 	Index    int
 	Task     string
@@ -98,147 +104,162 @@ type swarmWorkerResult struct {
 	Error    string
 }
 
-// decomposeTask breaks down a complex task into subtasks.
-func decomposeTask(task string, numWorkers int, strategy string) []string {
-	switch strategy {
-	case "divide_conquer":
-		return divideConquerDecompose(task, numWorkers)
-	case "compare":
-		return compareDecompose(task, numWorkers)
-	default:
-		return parallelDecompose(task, numWorkers)
+func planSubtasks(ctx context.Context, runner SubAgentRunner, sessionID, messageID, callID, task string, workers int, strategy string) ([]string, error) {
+	goal := "independent investigations whose results do not depend on each other"
+	if strategy == "sequential" {
+		goal = "ordered phases where each phase can use the prior phase's findings"
+	} else if strategy == "compare" {
+		goal = "distinct approaches to the same task, with their tradeoffs"
 	}
+	prompt := fmt.Sprintf("Break this task into at most %d concise subtasks. Create %s. The workers are read-only: ask them to inspect and report evidence, never to edit files. Return only JSON in this form: {\"subtasks\":[\"...\"]}.\n\nTask:\n%s", workers, goal, task)
+	response, err := runner(ctx, SubAgentRunParams{
+		SessionID:      sessionID,
+		AgentMessageID: messageID,
+		ToolCallID:     callID + "-plan",
+		Prompt:         prompt,
+		SessionTitle:   "Swarm Plan",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("plan swarm tasks: %w", err)
+	}
+	if response.IsError {
+		return nil, fmt.Errorf("plan swarm tasks: %s", response.Content)
+	}
+	subtasks, err := parseSubtasks(response.Content)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the swarm plan: %w; pass subtasks explicitly", err)
+	}
+	if len(subtasks) > workers {
+		subtasks = subtasks[:workers]
+	}
+	return subtasks, nil
 }
 
-// parallelDecompose splits a task into parallel aspects.
-func parallelDecompose(task string, n int) []string {
-	aspects := []string{
-		fmt.Sprintf("Analyze and research: %s", task),
-		fmt.Sprintf("Implementation planning for: %s", task),
-		fmt.Sprintf("Edge cases and error handling for: %s", task),
-		fmt.Sprintf("Testing strategy for: %s", task),
-		fmt.Sprintf("Documentation and examples for: %s", task),
+func parseSubtasks(response string) ([]string, error) {
+	start := strings.Index(response, "{")
+	end := strings.LastIndex(response, "}")
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("planner did not return a JSON object")
 	}
-
-	if n > len(aspects) {
-		n = len(aspects)
+	var plan struct {
+		Subtasks []string `json:"subtasks"`
 	}
-	return aspects[:n]
+	if err := json.Unmarshal([]byte(response[start:end+1]), &plan); err != nil {
+		return nil, err
+	}
+	subtasks := cleanSubtasks(plan.Subtasks)
+	if len(subtasks) == 0 {
+		return nil, fmt.Errorf("planner returned no subtasks")
+	}
+	return subtasks, nil
 }
 
-// divideConquerDecompose splits a task into sequential phases.
-func divideConquerDecompose(task string, n int) []string {
-	phases := []string{
-		fmt.Sprintf("Phase 1 - Research & Analysis: Understand requirements and constraints for: %s", task),
-		fmt.Sprintf("Phase 2 - Design: Create architecture and design for: %s", task),
-		fmt.Sprintf("Phase 3 - Implementation: Build the core solution for: %s", task),
-		fmt.Sprintf("Phase 4 - Testing: Verify and validate the solution for: %s", task),
+func cleanSubtasks(subtasks []string) []string {
+	cleaned := make([]string, 0, len(subtasks))
+	seen := make(map[string]struct{}, len(subtasks))
+	for _, task := range subtasks {
+		task = strings.TrimSpace(task)
+		key := strings.ToLower(task)
+		if task == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		cleaned = append(cleaned, task)
 	}
-
-	if n > len(phases) {
-		n = len(phases)
-	}
-	return phases[:n]
+	return cleaned
 }
 
-// compareDecompose creates variations for comparison.
-func compareDecompose(task string, n int) []string {
-	approaches := []string{
-		fmt.Sprintf("Approach A (conservative): Solve using established patterns - %s", task),
-		fmt.Sprintf("Approach B (balanced): Solve using a mix of proven and modern techniques - %s", task),
-		fmt.Sprintf("Approach C (innovative): Solve using cutting-edge or creative approaches - %s", task),
-		fmt.Sprintf("Approach D (minimal): Solve with the simplest possible solution - %s", task),
-		fmt.Sprintf("Approach E (comprehensive): Solve with full-featured, production-ready solution - %s", task),
-	}
+func executeSwarm(ctx context.Context, runner SubAgentRunner, sessionID, messageID, callID string, subtasks []string, workers int) []swarmWorkerResult {
+	results := make([]swarmWorkerResult, len(subtasks))
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
 
-	if n > len(approaches) {
-		n = len(approaches)
-	}
-	return approaches[:n]
-}
-
-// executeSwarm runs all workers in parallel and collects results.
-func executeSwarm(ctx context.Context, runner SubAgentRunner, sessionID, agentMessageID, toolCallID string, subtasks []string, strategy string) []swarmWorkerResult {
-	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		results []swarmWorkerResult
-	)
-
-	for i, subtask := range subtasks {
+	for i, task := range subtasks {
+		results[i] = swarmWorkerResult{Index: i, Task: task}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			results[i].Error = ctx.Err().Error()
+			continue
+		}
 		wg.Add(1)
-		go func(idx int, task string) {
+		go func(index int, task string) {
 			defer wg.Done()
-
-			resp, err := runner(ctx, SubAgentRunParams{
+			defer func() { <-sem }()
+			response, err := runner(ctx, SubAgentRunParams{
 				SessionID:      sessionID,
-				AgentMessageID: agentMessageID,
-				ToolCallID:     fmt.Sprintf("%s-worker-%d", toolCallID, idx),
+				AgentMessageID: messageID,
+				ToolCallID:     fmt.Sprintf("%s-worker-%d", callID, index),
 				Prompt:         task,
-				SessionTitle:   fmt.Sprintf("Swarm Worker %d", idx+1),
+				SessionTitle:   fmt.Sprintf("Swarm %d", index+1),
 			})
-
-			result := swarmWorkerResult{
-				Index: idx,
-				Task:  task,
-			}
-
 			if err != nil {
-				result.Error = err.Error()
+				results[index].Error = err.Error()
+			} else if response.IsError {
+				results[index].Error = response.Content
 			} else {
-				result.Response = resp.Content
+				results[index].Response = response.Content
 			}
-
-			mu.Lock()
-			results = append(results, result)
-			mu.Unlock()
-		}(i, subtask)
+		}(i, task)
 	}
-
 	wg.Wait()
 	return results
 }
 
-// mergeResults combines worker results based on the strategy.
+func executeSequential(ctx context.Context, runner SubAgentRunner, sessionID, messageID, callID string, subtasks []string) []swarmWorkerResult {
+	results := make([]swarmWorkerResult, 0, len(subtasks))
+	previous := ""
+	for i, task := range subtasks {
+		if err := ctx.Err(); err != nil {
+			results = append(results, swarmWorkerResult{Index: i, Task: task, Error: err.Error()})
+			continue
+		}
+		prompt := task
+		if previous != "" {
+			prompt = "Findings from earlier phases:\n" + previous + "\n\nNext phase:\n" + task
+		}
+		response, err := runner(ctx, SubAgentRunParams{
+			SessionID:      sessionID,
+			AgentMessageID: messageID,
+			ToolCallID:     fmt.Sprintf("%s-phase-%d", callID, i),
+			Prompt:         prompt,
+			SessionTitle:   fmt.Sprintf("Swarm Phase %d", i+1),
+		})
+		result := swarmWorkerResult{Index: i, Task: task}
+		if err != nil {
+			result.Error = err.Error()
+		} else if response.IsError {
+			result.Error = response.Content
+		} else {
+			result.Response = response.Content
+			previous = response.Content
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
 func mergeResults(results []swarmWorkerResult, strategy string) string {
 	var sb strings.Builder
-
 	switch strategy {
 	case "compare":
-		sb.WriteString("## Swarm Comparison Results\n\n")
-		for _, r := range results {
-			fmt.Fprintf(&sb, "### %s\n\n", r.Task)
-			if r.Error != "" {
-				fmt.Fprintf(&sb, "**Error:** %s\n\n", r.Error)
-			} else {
-				sb.WriteString(r.Response + "\n\n")
-			}
-		}
-		sb.WriteString("---\n\n**Next Steps:** Review the approaches above and select the best one, or combine elements from multiple approaches.\n")
-
-	case "divide_conquer":
-		sb.WriteString("## Swarm Phased Results\n\n")
-		for _, r := range results {
-			fmt.Fprintf(&sb, "### %s\n\n", r.Task)
-			if r.Error != "" {
-				fmt.Fprintf(&sb, "**Error:** %s\n\n", r.Error)
-			} else {
-				sb.WriteString(r.Response + "\n\n")
-			}
-		}
-
+		sb.WriteString("## Swarm comparison\n\n")
+	case "sequential":
+		sb.WriteString("## Swarm phases\n\n")
 	default:
-		sb.WriteString("## Swarm Parallel Results\n\n")
-		for _, r := range results {
-			fmt.Fprintf(&sb, "### Worker %d: %s\n\n", r.Index+1, r.Task)
-			if r.Error != "" {
-				fmt.Fprintf(&sb, "**Error:** %s\n\n", r.Error)
-			} else {
-				sb.WriteString(r.Response + "\n\n")
-			}
-		}
-		sb.WriteString("---\n\n**Summary:** All workers completed. Review each section above for comprehensive coverage.\n")
+		sb.WriteString("## Swarm findings\n\n")
 	}
 
-	return sb.String()
+	for _, result := range results {
+		fmt.Fprintf(&sb, "### %s\n\n", result.Task)
+		if result.Error != "" {
+			fmt.Fprintf(&sb, "Worker error: %s\n\n", result.Error)
+			continue
+		}
+		sb.WriteString(result.Response + "\n\n")
+	}
+	return strings.TrimSpace(sb.String())
 }
