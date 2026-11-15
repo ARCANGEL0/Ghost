@@ -3248,6 +3248,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openModelsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.ProvidersID:
+		if cmd := m.openProviderDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.RunsID:
 		if cmd := m.openRunsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)

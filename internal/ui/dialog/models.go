@@ -85,13 +85,14 @@ type Models struct {
 	codexReady *bool
 
 	keyMap struct {
-		Tab      key.Binding
-		UpDown   key.Binding
-		Select   key.Binding
-		Edit     key.Binding
-		Next     key.Binding
-		Previous key.Binding
-		Close    key.Binding
+		Tab       key.Binding
+		UpDown    key.Binding
+		Select    key.Binding
+		Providers key.Binding
+		Edit      key.Binding
+		Next      key.Binding
+		Previous  key.Binding
+		Close     key.Binding
 	}
 	list  *ModelsList
 	input textinput.Model
@@ -128,6 +129,10 @@ func NewModels(com *common.Common, isOnboarding bool) (*Models, error) {
 	m.keyMap.Select = key.NewBinding(
 		key.WithKeys("enter", "ctrl+y"),
 		key.WithHelp("enter", "confirm"),
+	)
+	m.keyMap.Providers = key.NewBinding(
+		key.WithKeys("p", "P"),
+		key.WithHelp("P", "providers"),
 	)
 	m.keyMap.Edit = key.NewBinding(
 		key.WithKeys("ctrl+e"),
@@ -172,6 +177,8 @@ func (m *Models) HandleMsg(msg tea.Msg) Action {
 		switch {
 		case key.Matches(msg, m.keyMap.Close):
 			return ActionClose{}
+		case !m.isOnboarding && key.Matches(msg, m.keyMap.Providers):
+			return ActionOpenDialog{DialogID: ProvidersID}
 		case key.Matches(msg, m.keyMap.Previous):
 			m.list.Focus()
 			if m.list.IsSelectedFirst() {
@@ -322,6 +329,7 @@ func (m *Models) ShortHelp() []key.Binding {
 	h := []key.Binding{
 		m.keyMap.UpDown,
 		m.keyMap.Tab,
+		m.keyMap.Providers,
 		m.keyMap.Select,
 	}
 	if m.isSelectedConfigured() {
