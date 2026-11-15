@@ -15,7 +15,7 @@ import (
 const SelfHealingPrompt = `
 
 # Self-Healing Verification Loops
-When you modify files using the "edit", "write", "multiedit", or "atomic_edit" tools, Ghost will run a verification command (e.g. compilation/test suites) in the background.
+After successful file changes from a model step finish, Ghost runs the configured verification command (for example, a build or test suite).
 If the verification command fails, you will receive a tool error response structured like this:
 <verification_failure>
 Your changes broke the build. Here is the compiler/test error:

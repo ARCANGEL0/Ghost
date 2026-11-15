@@ -18,6 +18,9 @@ var taskPromptTmpl []byte
 //go:embed templates/plan.md.tpl
 var planPromptTmpl []byte
 
+//go:embed templates/ghost_engineering.md.tpl
+var ghostEngineeringPrompt []byte
+
 var initializePromptTmpl []byte
 
 func coderPrompt(opts ...prompt.Option) (*prompt.Prompt, error) {

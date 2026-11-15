@@ -521,6 +521,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		if err != nil {
 			return err
 		}
+		systemPrompt += "\n\n" + strings.TrimSpace(string(ghostEngineeringPrompt))
 		// Append self-healing instructions to enable automatic error recovery
 		systemPrompt += SelfHealingPrompt
 		result.SetSystemPrompt(systemPrompt)
