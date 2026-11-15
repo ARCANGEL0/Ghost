@@ -253,10 +253,18 @@ const (
 	SandboxDocker SandboxType = "docker"
 )
 
+type Hook struct {
+	Event          string `json:"event" jsonschema:"required,description=Agent lifecycle event"`
+	Matcher        string `json:"matcher,omitempty" jsonschema:"description=Tool name pattern for tool events"`
+	Command        string `json:"command" jsonschema:"required,description=Command to run for the event"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"description=Maximum runtime in seconds,default=10"`
+}
+
 type Options struct {
 	ContextPaths              []string     `json:"context_paths,omitempty" jsonschema:"description=Paths to files containing context information for the AI,example=.cursorrules,example=GHOST.md"`
 	SkillsPaths               []string     `json:"skills_paths,omitempty" jsonschema:"description=Paths to directories containing Agent Skills (folders with SKILL.md files),example=~/.config/Ghost/skills,example=./skills"`
 	DisabledSkills            []string     `json:"disabled_skills,omitempty" jsonschema:"description=Names of skills disabled in Ghost"`
+	Hooks                     []Hook       `json:"hooks,omitempty" jsonschema:"description=Commands to run on agent lifecycle events"`
 	TUI                       *TUIOptions  `json:"tui,omitempty" jsonschema:"description=Terminal user interface options"`
 	CollabShareURL            string       `json:"collab_share_url,omitempty" jsonschema:"description=Base WebSocket URL used when generating collaboration share links,example=ws://ghost.example.com:8787"`
 	CollabAllowedOrigins      []string     `json:"collab_allowed_origins,omitempty" jsonschema:"description=Allowed origins for WebSocket collaboration connections,example=[\"https://ghost.example.com\"]"`

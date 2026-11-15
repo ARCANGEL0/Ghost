@@ -122,6 +122,7 @@ type sessionAgent struct {
 
 	verificationMu      sync.Mutex
 	verificationRetries map[string]int
+	hooks               *hookRunner
 }
 
 type SessionAgentOptions struct {
@@ -158,6 +159,7 @@ func NewSessionAgent(
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		verificationRetries:  make(map[string]int),
+		hooks:                newHookRunner(opts.Config),
 	}
 }
 
@@ -186,7 +188,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	a.verificationMu.Unlock()
 
 	// Copy mutable fields under lock to avoid races with SetTools/SetModels.
-	agentTools := a.wrapToolsWithVerification(ctx, call.SessionID, a.tools.Copy())
+	agentTools := a.wrapToolsWithHooks(call.SessionID, a.wrapToolsWithVerification(ctx, call.SessionID, a.tools.Copy()))
 	largeModel := a.largeModel.Get()
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
@@ -228,6 +230,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
+	if len(msgs) == 0 {
+		a.fireHook(ctx, hookInput{Event: hookSessionStart, SessionID: call.SessionID})
+	}
+	a.fireHook(ctx, hookInput{Event: hookUserPromptSubmit, SessionID: call.SessionID, Prompt: call.Prompt})
 
 	var wg sync.WaitGroup
 	// Generate title if first message.
@@ -253,6 +259,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 
 	defer cancel()
 	defer a.activeRequests.Del(call.SessionID)
+	defer a.fireHook(context.WithoutCancel(ctx), hookInput{Event: hookStop, SessionID: call.SessionID})
 
 	history, files := a.preparePrompt(msgs, call.Attachments...)
 
@@ -279,7 +286,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			}
 
 			// Use latest tools (updated by SetTools when MCP tools change).
-			prepared.Tools = a.wrapToolsWithVerification(callContext, call.SessionID, a.tools.Copy())
+			prepared.Tools = a.wrapToolsWithHooks(call.SessionID, a.wrapToolsWithVerification(callContext, call.SessionID, a.tools.Copy()))
 
 			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
 			a.messageQueue.Del(call.SessionID)
@@ -619,6 +626,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	if err != nil {
 		return err
 	}
+	a.fireHook(ctx, hookInput{Event: hookPreCompact, SessionID: sessionID})
 	if len(msgs) == 0 {
 		// Nothing to summarize.
 		return nil
