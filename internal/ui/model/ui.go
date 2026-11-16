@@ -3256,6 +3256,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openRunsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.ProviderStatsID:
+		if cmd := m.openProviderStatsDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.CommandsID:
 		if cmd := m.openCommandsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -3584,6 +3588,16 @@ func (m *UI) openRunsDialog() tea.Cmd {
 	runs := dialog.NewRuns(m.com)
 	m.dialog.OpenDialog(runs)
 	return runs.InitialCmd()
+}
+
+func (m *UI) openProviderStatsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.ProviderStatsID) {
+		m.dialog.BringToFront(dialog.ProviderStatsID)
+		return nil
+	}
+	stats := dialog.NewProviderStats(m.com)
+	m.dialog.OpenDialog(stats)
+	return stats.InitialCmd()
 }
 
 // openReasoningDialog opens the reasoning effort dialog.
@@ -4156,6 +4170,8 @@ func (m *UI) handleSlashCommand(cmd string, args string) tea.Cmd {
 		return m.openModelsDialog()
 	case "provider", "providers":
 		return m.openProviderDialog()
+	case "stats":
+		return m.openProviderStatsDialog()
 	case "skills":
 		fields := strings.Fields(args)
 		if len(fields) == 0 {

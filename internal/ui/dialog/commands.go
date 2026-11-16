@@ -424,6 +424,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		NewCommandItem(c.com.Styles, "import_agent_session", "Import Session", "", ActionOpenDialog{ImportAgentID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+l", ActionOpenDialog{ModelsID}),
 		NewCommandItem(c.com.Styles, "agent_runs", "Agent Runs", "", ActionOpenDialog{RunsID}),
+		NewCommandItem(c.com.Styles, "provider_stats", "Provider Stats", "", ActionOpenDialog{ProviderStatsID}),
 		NewCommandItem(c.com.Styles, "providers", "Configure Providers", "", ActionOpenDialog{ProvidersID}),
 		NewCommandItem(c.com.Styles, "skills", "Manage Skills", "", ActionOpenDialog{SkillsID}),
 		NewCommandItem(c.com.Styles, "import_skills", "Import Skills", "", ActionOpenDialog{ImportSkillsID}),

@@ -38,6 +38,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/oauth/copilot"
 	"github.com/swadhinbiswas/ghost/internal/permission"
 	"github.com/swadhinbiswas/ghost/internal/plugin"
+	"github.com/swadhinbiswas/ghost/internal/providerstats"
 	"github.com/swadhinbiswas/ghost/internal/pubsub"
 	"github.com/swadhinbiswas/ghost/internal/semantic"
 	"github.com/swadhinbiswas/ghost/internal/session"
@@ -110,6 +111,7 @@ type coordinator struct {
 	semIndex      *semantic.Index
 	memExtractor  *memory.Extractor
 	memStore      *memory.MemoryStore
+	providerStats *providerstats.Store
 	pluginLoader  *plugin.Loader
 	feedbackStore *feedback.Store
 	collabHub     *collab.Hub
@@ -139,6 +141,7 @@ func NewCoordinator(
 	notify pubsub.Publisher[notify.Notification],
 	sessionLocks *session.RunLocker,
 	memStore *memory.MemoryStore,
+	providerStats *providerstats.Store,
 ) (Coordinator, error) {
 	c := &coordinator{
 		cfg:           cfg,
@@ -154,6 +157,7 @@ func NewCoordinator(
 		semIndex:      semantic.NewIndex(cfg.WorkingDir()),
 		memExtractor:  memory.NewExtractor(),
 		memStore:      memStore,
+		providerStats: providerStats,
 		pluginLoader:  plugin.NewLoader(cfg.WorkingDir()),
 		feedbackStore: initFeedbackStore(cfg.WorkingDir()),
 		collabHub:     collab.NewHub(),
@@ -307,7 +311,8 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 	defer cancelRun()
 
 	run := func() (*fantasy.AgentResult, error) {
-		return c.currentAgent.Run(runCtx, SessionAgentCall{
+		started := time.Now()
+		result, err := c.currentAgent.Run(runCtx, SessionAgentCall{
 			SessionID:        sessionID,
 			RunID:            runID,
 			Prompt:           prompt,
@@ -320,6 +325,22 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			FrequencyPenalty: freqPenalty,
 			PresencePenalty:  presPenalty,
 		})
+		if c.providerStats != nil {
+			lastError, rateLimit, cancelled := providerResult(err)
+			if statsErr := c.providerStats.Record(
+				context.WithoutCancel(ctx),
+				model.ModelCfg.Provider,
+				model.ModelCfg.Model,
+				time.Since(started),
+				err == nil,
+				rateLimit,
+				cancelled,
+				lastError,
+			); statsErr != nil {
+				slog.Debug("Could not record provider statistics", "error", statsErr)
+			}
+		}
+		return result, err
 	}
 	result, originalErr := run()
 
@@ -356,6 +377,20 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 
 	c.runs.finish(runID, originalErr)
 	return result, originalErr
+}
+
+func providerResult(err error) (string, bool, bool) {
+	if err == nil {
+		return "", false, false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, ErrRequestCancelled) {
+		return "", false, true
+	}
+	var providerErr *fantasy.ProviderError
+	if errors.As(err, &providerErr) && providerErr.StatusCode > 0 {
+		return fmt.Sprintf("HTTP %d", providerErr.StatusCode), providerErr.StatusCode == http.StatusTooManyRequests, false
+	}
+	return "request failed", false, false
 }
 
 func (c *coordinator) acquireSessionRun(ctx context.Context, sessionID string) (context.Context, func(), error) {

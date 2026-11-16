@@ -38,6 +38,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/memory"
 	"github.com/swadhinbiswas/ghost/internal/message"
 	"github.com/swadhinbiswas/ghost/internal/permission"
+	"github.com/swadhinbiswas/ghost/internal/providerstats"
 	"github.com/swadhinbiswas/ghost/internal/pubsub"
 	"github.com/swadhinbiswas/ghost/internal/session"
 	"github.com/swadhinbiswas/ghost/internal/shell"
@@ -55,14 +56,15 @@ type UpdateAvailableMsg struct {
 }
 
 type App struct {
-	DB           *sql.DB
-	Sessions     session.Service
-	Messages     message.Service
-	SessionLocks *session.RunLocker
-	Memory       *memory.MemoryStore
-	History      history.Service
-	Permissions  permission.Service
-	FileTracker  filetracker.Service
+	DB            *sql.DB
+	Sessions      session.Service
+	Messages      message.Service
+	SessionLocks  *session.RunLocker
+	Memory        *memory.MemoryStore
+	ProviderStats *providerstats.Store
+	History       history.Service
+	Permissions   permission.Service
+	FileTracker   filetracker.Service
 
 	AgentCoordinator agent.Coordinator
 
@@ -99,15 +101,16 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	}
 
 	app := &App{
-		DB:           conn,
-		Sessions:     sessions,
-		Messages:     messages,
-		SessionLocks: session.NewRunLocker(conn),
-		Memory:       memStore,
-		History:      files,
-		Permissions:  permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
-		FileTracker:  filetracker.NewService(q),
-		LSPManager:   lsp.NewManager(store),
+		DB:            conn,
+		Sessions:      sessions,
+		Messages:      messages,
+		SessionLocks:  session.NewRunLocker(conn),
+		Memory:        memStore,
+		ProviderStats: providerstats.New(conn),
+		History:       files,
+		Permissions:   permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
+		FileTracker:   filetracker.NewService(q),
+		LSPManager:    lsp.NewManager(store),
 
 		globalCtx: ctx,
 
@@ -562,6 +565,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.agentNotifications,
 		app.SessionLocks,
 		app.Memory,
+		app.ProviderStats,
 	)
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)
