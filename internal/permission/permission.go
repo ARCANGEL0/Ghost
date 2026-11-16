@@ -47,6 +47,8 @@ type Service interface {
 	GrantPersistent(permission PermissionRequest)
 	Grant(permission PermissionRequest)
 	Deny(permission PermissionRequest)
+	Pending(sessionID string) []PermissionRequest
+	Reply(id, decision string) bool
 	Request(ctx context.Context, opts CreatePermissionRequest) (bool, error)
 	AutoApproveSession(sessionID string)
 	SetSkipRequests(skip bool)
@@ -70,63 +72,63 @@ type permissionService struct {
 	// used to make sure we only process one request at a time
 	requestMu       sync.Mutex
 	activeRequest   *PermissionRequest
-	activeRequestMu sync.Mutex
+	activeRequestMu sync.RWMutex
 }
 
 func (s *permissionService) GrantPersistent(permission PermissionRequest) {
-	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
-		ToolCallID: permission.ToolCallID,
-		Granted:    true,
-	})
-	respCh, ok := s.pendingRequests.Get(permission.ID)
-	if ok {
-		respCh <- true
-	}
-
-	s.sessionPermissionsMu.Lock()
-	s.sessionPermissions = append(s.sessionPermissions, permission)
-	s.sessionPermissionsMu.Unlock()
-
-	s.activeRequestMu.Lock()
-	if s.activeRequest != nil && s.activeRequest.ID == permission.ID {
-		s.activeRequest = nil
-	}
-	s.activeRequestMu.Unlock()
+	s.Reply(permission.ID, "always")
 }
 
 func (s *permissionService) Grant(permission PermissionRequest) {
-	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
-		ToolCallID: permission.ToolCallID,
-		Granted:    true,
-	})
-	respCh, ok := s.pendingRequests.Get(permission.ID)
-	if ok {
-		respCh <- true
-	}
-
-	s.activeRequestMu.Lock()
-	if s.activeRequest != nil && s.activeRequest.ID == permission.ID {
-		s.activeRequest = nil
-	}
-	s.activeRequestMu.Unlock()
+	s.Reply(permission.ID, "once")
 }
 
 func (s *permissionService) Deny(permission PermissionRequest) {
-	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
-		ToolCallID: permission.ToolCallID,
-		Granted:    false,
-		Denied:     true,
-	})
-	respCh, ok := s.pendingRequests.Get(permission.ID)
-	if ok {
-		respCh <- false
+	s.Reply(permission.ID, "reject")
+}
+
+func (s *permissionService) Pending(sessionID string) []PermissionRequest {
+	s.activeRequestMu.RLock()
+	defer s.activeRequestMu.RUnlock()
+	if s.activeRequest == nil || (sessionID != "" && s.activeRequest.SessionID != sessionID) {
+		return nil
+	}
+	return []PermissionRequest{*s.activeRequest}
+}
+
+func (s *permissionService) Reply(id, decision string) bool {
+	if decision != "once" && decision != "always" && decision != "reject" {
+		return false
+	}
+	respCh, ok := s.pendingRequests.Take(id)
+	if !ok {
+		return false
 	}
 
 	s.activeRequestMu.Lock()
-	if s.activeRequest != nil && s.activeRequest.ID == permission.ID {
+	var request PermissionRequest
+	if s.activeRequest != nil && s.activeRequest.ID == id {
+		request = *s.activeRequest
 		s.activeRequest = nil
 	}
 	s.activeRequestMu.Unlock()
+	if request.ID == "" {
+		return false
+	}
+
+	allowed := decision != "reject"
+	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+		ToolCallID: request.ToolCallID,
+		Granted:    allowed,
+		Denied:     !allowed,
+	})
+	if decision == "always" {
+		s.sessionPermissionsMu.Lock()
+		s.sessionPermissions = append(s.sessionPermissions, request)
+		s.sessionPermissionsMu.Unlock()
+	}
+	respCh <- allowed
+	return true
 }
 
 func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRequest) (bool, error) {
@@ -196,13 +198,19 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	}
 	s.sessionPermissionsMu.RUnlock()
 
+	respCh := make(chan bool, 1)
+	s.pendingRequests.Set(permission.ID, respCh)
 	s.activeRequestMu.Lock()
 	s.activeRequest = &permission
 	s.activeRequestMu.Unlock()
-
-	respCh := make(chan bool, 1)
-	s.pendingRequests.Set(permission.ID, respCh)
-	defer s.pendingRequests.Del(permission.ID)
+	defer func() {
+		s.pendingRequests.Del(permission.ID)
+		s.activeRequestMu.Lock()
+		if s.activeRequest != nil && s.activeRequest.ID == permission.ID {
+			s.activeRequest = nil
+		}
+		s.activeRequestMu.Unlock()
+	}()
 
 	// Publish the request
 	s.Publish(pubsub.CreatedEvent, permission)
