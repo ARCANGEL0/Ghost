@@ -325,7 +325,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			FrequencyPenalty: freqPenalty,
 			PresencePenalty:  presPenalty,
 		})
-		if c.providerStats != nil {
+		if c.providerStats != nil && (result != nil || err != nil) {
 			lastError, rateLimit, cancelled := providerResult(err)
 			if statsErr := c.providerStats.Record(
 				context.WithoutCancel(ctx),
