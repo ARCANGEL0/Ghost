@@ -97,7 +97,9 @@ second reply returns `404`. Ghost does not currently ask interactive form
 questions. Form reads return an empty list and replies return `501`.
 
 Follow live session, message, tool, permission, and execution events with
-Server Sent Events:
+Server Sent Events. The stream assigns an event ID to each stored event; send
+`Last-Event-ID` to replay events after reconnecting. The server keeps the most
+recent 10,000 session and message changes.
 
 ```sh
 curl -N -H "Authorization: Bearer $GHOST_REMOTE_TOKEN" \

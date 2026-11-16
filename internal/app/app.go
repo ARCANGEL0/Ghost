@@ -35,6 +35,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/history"
 	"github.com/swadhinbiswas/ghost/internal/log"
 	"github.com/swadhinbiswas/ghost/internal/lsp"
+	"github.com/swadhinbiswas/ghost/internal/memory"
 	"github.com/swadhinbiswas/ghost/internal/message"
 	"github.com/swadhinbiswas/ghost/internal/permission"
 	"github.com/swadhinbiswas/ghost/internal/pubsub"
@@ -54,11 +55,14 @@ type UpdateAvailableMsg struct {
 }
 
 type App struct {
-	Sessions    session.Service
-	Messages    message.Service
-	History     history.Service
-	Permissions permission.Service
-	FileTracker filetracker.Service
+	DB           *sql.DB
+	Sessions     session.Service
+	Messages     message.Service
+	SessionLocks *session.RunLocker
+	Memory       *memory.MemoryStore
+	History      history.Service
+	Permissions  permission.Service
+	FileTracker  filetracker.Service
 
 	AgentCoordinator agent.Coordinator
 
@@ -83,6 +87,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	sessions := session.NewService(q, conn)
 	messages := message.NewService(q)
 	files := history.NewService(q, conn)
+	memStore, err := memory.NewMemoryStore(conn, store.WorkingDir())
+	if err != nil {
+		return nil, fmt.Errorf("initialize project memory: %w", err)
+	}
 	cfg := store.Config()
 	skipPermissionsRequests := cfg.Permissions != nil && cfg.Permissions.SkipRequests
 	var allowedTools []string
@@ -91,12 +99,15 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	}
 
 	app := &App{
-		Sessions:    sessions,
-		Messages:    messages,
-		History:     files,
-		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
-		FileTracker: filetracker.NewService(q),
-		LSPManager:  lsp.NewManager(store),
+		DB:           conn,
+		Sessions:     sessions,
+		Messages:     messages,
+		SessionLocks: session.NewRunLocker(conn),
+		Memory:       memStore,
+		History:      files,
+		Permissions:  permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
+		FileTracker:  filetracker.NewService(q),
+		LSPManager:   lsp.NewManager(store),
 
 		globalCtx: ctx,
 
@@ -549,6 +560,8 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.FileTracker,
 		app.LSPManager,
 		app.agentNotifications,
+		app.SessionLocks,
+		app.Memory,
 	)
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)

@@ -109,6 +109,7 @@ type coordinator struct {
 	filewatcher   *filewatcher.Watcher
 	semIndex      *semantic.Index
 	memExtractor  *memory.Extractor
+	memStore      *memory.MemoryStore
 	pluginLoader  *plugin.Loader
 	feedbackStore *feedback.Store
 	collabHub     *collab.Hub
@@ -116,6 +117,9 @@ type coordinator struct {
 	swarmSlots    chan struct{}
 	runs          *runTracker
 	toolsBuildMu  sync.Mutex
+	runLockMu     sync.Mutex
+	localRunCount map[string]int
+	sessionLocks  *session.RunLocker
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
@@ -133,6 +137,8 @@ func NewCoordinator(
 	filetracker filetracker.Service,
 	lspManager *lsp.Manager,
 	notify pubsub.Publisher[notify.Notification],
+	sessionLocks *session.RunLocker,
+	memStore *memory.MemoryStore,
 ) (Coordinator, error) {
 	c := &coordinator{
 		cfg:           cfg,
@@ -147,11 +153,14 @@ func NewCoordinator(
 		filewatcher:   filewatcher.New(cfg.WorkingDir()),
 		semIndex:      semantic.NewIndex(cfg.WorkingDir()),
 		memExtractor:  memory.NewExtractor(),
+		memStore:      memStore,
 		pluginLoader:  plugin.NewLoader(cfg.WorkingDir()),
 		feedbackStore: initFeedbackStore(cfg.WorkingDir()),
 		collabHub:     collab.NewHub(),
 		swarmSlots:    make(chan struct{}, 5),
 		runs:          newRunTracker(),
+		localRunCount: make(map[string]int),
+		sessionLocks:  sessionLocks,
 	}
 
 	// Start file watcher to detect external changes
@@ -247,6 +256,12 @@ func (c *coordinator) WasFileModifiedExternally(path string, since time.Time) bo
 
 // Run implements Coordinator.
 func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+	ctx, releaseRun, err := c.acquireSessionRun(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseRun()
+
 	if err := c.readyWg.Wait(); err != nil {
 		return nil, err
 	}
@@ -341,6 +356,42 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 
 	c.runs.finish(runID, originalErr)
 	return result, originalErr
+}
+
+func (c *coordinator) acquireSessionRun(ctx context.Context, sessionID string) (context.Context, func(), error) {
+	if c.sessionLocks == nil {
+		return ctx, func() {}, nil
+	}
+
+	c.runLockMu.Lock()
+	if c.localRunCount[sessionID] > 0 {
+		c.localRunCount[sessionID]++
+		c.runLockMu.Unlock()
+		return ctx, func() { c.releaseLocalRun(sessionID, nil) }, nil
+	}
+	runCtx, release, err := c.sessionLocks.Acquire(ctx, sessionID)
+	if err == nil {
+		c.localRunCount[sessionID] = 1
+	}
+	c.runLockMu.Unlock()
+	if err != nil {
+		return nil, nil, err
+	}
+	return runCtx, func() { c.releaseLocalRun(sessionID, release) }, nil
+}
+
+func (c *coordinator) releaseLocalRun(sessionID string, release func()) {
+	c.runLockMu.Lock()
+	c.localRunCount[sessionID]--
+	if c.localRunCount[sessionID] > 0 {
+		c.runLockMu.Unlock()
+		return
+	}
+	delete(c.localRunCount, sessionID)
+	c.runLockMu.Unlock()
+	if release != nil {
+		release()
+	}
 }
 
 func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.ProviderOptions {
@@ -553,6 +604,7 @@ func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, a
 		Notify:               c.notify,
 		Config:               c.cfg,
 		Runs:                 c.runs,
+		Memory:               c.memStore,
 	})
 
 	ready.Go(func() error {
@@ -657,7 +709,7 @@ func (c *coordinator) buildToolsLocked(ctx context.Context, agent config.Agent, 
 			tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, workingDir),
 			tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, workingDir),
 			tools.NewAtomicEditTool(c.permissions, c.history, workingDir),
-			tools.NewMemoryTool(c.cfg),
+			tools.NewMemoryTool(c.memStore),
 			tools.NewTodosTool(c.sessions),
 			tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, workingDir),
 			tools.NewUndoTool(c.permissions, c.history, workingDir),
@@ -1317,6 +1369,12 @@ func (c *coordinator) QueuedPromptsList(sessionID string) []string {
 }
 
 func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
+	ctx, release, err := c.acquireSessionRun(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	providerCfg, ok := c.cfg.Config().Providers.Get(c.currentAgent.Model().ModelCfg.Provider)
 	if !ok {
 		return errModelProviderNotConfigured
@@ -1479,24 +1537,18 @@ func (c *coordinator) extractAndSaveMemories(ctx context.Context, sessionID, use
 		return
 	}
 
-	memStore, err := memory.NewMemoryStore(c.cfg.WorkingDir())
-	if err != nil {
-		slog.Debug("Failed to init memory store for extraction", "error", err)
+	if c.memStore == nil {
 		return
 	}
 
-	existing := memStore.GetAll()
 	saved := 0
 	for _, fact := range facts {
 		key := fact.Category + "_" + fact.Key
-		if _, exists := existing[key]; exists {
-			continue
-		}
 		value := fact.Value
 		if len(value) > 300 {
 			value = value[:300] + "..."
 		}
-		if err := memStore.Set(key, value); err != nil {
+		if err := c.memStore.AddExtracted(memory.StoredFact{Key: key, Value: value, Category: fact.Category}, sessionID); err != nil {
 			slog.Debug("Failed to save extracted memory", "key", key, "error", err)
 			continue
 		}

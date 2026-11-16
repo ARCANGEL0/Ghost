@@ -3,7 +3,6 @@ package prompt
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +39,6 @@ type PromptDat struct {
 	GitStatus     string
 	GitBoot       string
 	ContextFiles  []ContextFile
-	ProjectMemory map[string]string
 	AvailSkillXML string
 	GhostRules    string
 	FeedbackXML   string
@@ -223,11 +221,6 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 			availSkillXML = skills.ToPromptXML(enabledSkills)
 		}
 	}
-	projectMemory := make(map[string]string)
-	if memData, err := os.ReadFile(filepath.Join(workingDir, ".ghost", "memory.json")); err == nil {
-		_ = json.Unmarshal(memData, &projectMemory)
-	}
-
 	// Load project rules from GHOST.md or .ghostrules
 	ghostRules := loadProjectRules(workingDir)
 
@@ -241,7 +234,6 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		Config:        *cfg,
 		WorkingDir:    filepath.ToSlash(workingDir),
 		IsGitRepo:     isGit,
-		ProjectMemory: projectMemory,
 		Platform:      platform,
 		Date:          p.now().Format("1/2/2006"),
 		AvailSkillXML: availSkillXML,

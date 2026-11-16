@@ -33,13 +33,13 @@ type Server struct {
 	ctx       context.Context
 	app       *app.App
 	token     string
-	events    *pubsub.Broker[Event]
 	promptMu  sync.Mutex
 	prompting map[string]bool
 }
 
 // Event is a change sent to remote clients.
 type Event struct {
+	ID   int64  `json:"-"`
 	Type string `json:"type"`
 	Data any    `json:"data"`
 }
@@ -126,7 +126,6 @@ func NewServer(ctx context.Context, app *app.App, token string) *Server {
 		ctx:       ctx,
 		app:       app,
 		token:     token,
-		events:    pubsub.NewBroker[Event](),
 		prompting: make(map[string]bool),
 	}
 }
@@ -202,6 +201,11 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "could not read session details")
 			return
 		}
+		if s.app.SessionLocks != nil {
+			if busy, lockErr := s.app.SessionLocks.IsBusy(r.Context(), item.ID); lockErr == nil && busy && view.Waiting == nil {
+				view.Waiting = &waitingView{Kind: "running"}
+			}
+		}
 		views = append(views, view)
 	}
 	sort.SliceStable(views, func(i, j int) bool {
@@ -225,6 +229,11 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not read session details")
 		return
+	}
+	if s.app.SessionLocks != nil {
+		if busy, err := s.app.SessionLocks.IsBusy(r.Context(), item.ID); err == nil && busy && view.Waiting == nil {
+			view.Waiting = &waitingView{Kind: "running"}
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": view})
 }
@@ -316,8 +325,12 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	remoteBusy := false
+	if s.app.SessionLocks != nil {
+		remoteBusy, _ = s.app.SessionLocks.IsBusy(r.Context(), id)
+	}
 	s.promptMu.Lock()
-	if s.prompting[id] || s.app.AgentCoordinator.IsSessionBusy(id) {
+	if s.prompting[id] || s.app.AgentCoordinator.IsSessionBusy(id) || remoteBusy {
 		s.promptMu.Unlock()
 		writeError(w, http.StatusConflict, "this session is busy; wait for its current turn to finish")
 		return
@@ -374,7 +387,6 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 			if event.Type != pubsub.CreatedEvent || item.SessionID != id || item.Role != message.User || item.Content().Text != input.Text {
 				continue
 			}
-			s.publish("session.execution.started", map[string]any{"sessionID": id})
 			writeJSON(w, http.StatusAccepted, map[string]any{"data": convertMessage(item)})
 			return
 		case err := <-done:
@@ -401,7 +413,14 @@ func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.getSessionByID(w, r, r.PathValue("id")); !ok {
 		return
 	}
-	s.app.AgentCoordinator.Cancel(r.PathValue("id"))
+	id := r.PathValue("id")
+	if s.app.SessionLocks != nil {
+		if _, err := s.app.SessionLocks.RequestCancel(r.Context(), id); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not interrupt session")
+			return
+		}
+	}
+	s.app.AgentCoordinator.Cancel(id)
 	writeJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -563,7 +582,22 @@ func permissionView(request permission.PermissionRequest) map[string]any {
 }
 
 func (s *Server) publish(kind string, data any) {
-	s.events.Publish(pubsub.CreatedEvent, Event{Type: kind, Data: data})
+	if s.app == nil || s.app.DB == nil {
+		return
+	}
+	payload, err := json.Marshal(Event{Type: kind, Data: data})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
+	defer cancel()
+	_, _ = s.app.DB.ExecContext(ctx,
+		"INSERT INTO remote_events (type, payload, created_at) VALUES ('custom', ?, ?)",
+		string(payload), time.Now().UnixMilli(),
+	)
+	_, _ = s.app.DB.ExecContext(ctx, `
+		DELETE FROM remote_events
+		WHERE id <= (SELECT COALESCE(MAX(id), 0) - 10000 FROM remote_events)`)
 }
 
 func decodeJSON(r *http.Request, target any) error {

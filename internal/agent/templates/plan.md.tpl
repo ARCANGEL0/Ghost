@@ -96,11 +96,3 @@ Git status:
 {{.GhostRules}}
 </project_rules>
 {{end}}
-
-{{if .ProjectMemory}}
-<project_memory>
-{{range $k, $v := .ProjectMemory}}
-<fact id="{{$k}}">{{$v}}</fact>
-{{end}}
-</project_memory>
-{{end}}

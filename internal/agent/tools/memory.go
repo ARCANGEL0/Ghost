@@ -4,9 +4,9 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"sort"
 
 	"charm.land/fantasy"
-	"github.com/swadhinbiswas/ghost/internal/config"
 	"github.com/swadhinbiswas/ghost/internal/memory"
 )
 
@@ -21,14 +21,13 @@ type MemoryParams struct {
 	Value  string `json:"value,omitempty" description:"The value to store (required for set)"`
 }
 
-func NewMemoryTool(store *config.ConfigStore) fantasy.AgentTool {
+func NewMemoryTool(memStore *memory.MemoryStore) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		MemoryToolName,
 		string(memoryDescription),
 		func(ctx context.Context, params MemoryParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			memStore, err := memory.NewMemoryStore(store.WorkingDir())
-			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to init memory store: %w", err)
+			if memStore == nil {
+				return fantasy.ToolResponse{}, fmt.Errorf("project memory is not available")
 			}
 
 			switch params.Action {
@@ -66,8 +65,13 @@ func NewMemoryTool(store *config.ConfigStore) fantasy.AgentTool {
 					return fantasy.NewTextResponse("Project memory is currently empty."), nil
 				}
 				out := "Project Memory:\n"
-				for k, v := range facts {
-					out += fmt.Sprintf("- %s: %s\n", k, v)
+				keys := make([]string, 0, len(facts))
+				for key := range facts {
+					keys = append(keys, key)
+				}
+				sort.Strings(keys)
+				for _, key := range keys {
+					out += fmt.Sprintf("- %s: %s\n", key, facts[key])
 				}
 				return fantasy.NewTextResponse(out), nil
 

@@ -38,6 +38,7 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/agent/tools/mcp"
 	"github.com/swadhinbiswas/ghost/internal/config"
 	"github.com/swadhinbiswas/ghost/internal/csync"
+	"github.com/swadhinbiswas/ghost/internal/memory"
 	"github.com/swadhinbiswas/ghost/internal/message"
 	"github.com/swadhinbiswas/ghost/internal/permission"
 	"github.com/swadhinbiswas/ghost/internal/pubsub"
@@ -118,6 +119,7 @@ type sessionAgent struct {
 	notify               pubsub.Publisher[notify.Notification]
 	cfg                  *config.ConfigStore
 	runs                 *runTracker
+	memory               *memory.MemoryStore
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
@@ -141,6 +143,7 @@ type SessionAgentOptions struct {
 	Notify               pubsub.Publisher[notify.Notification]
 	Config               *config.ConfigStore
 	Runs                 *runTracker
+	Memory               *memory.MemoryStore
 }
 
 func NewSessionAgent(
@@ -164,6 +167,7 @@ func NewSessionAgent(
 		verificationRetries:  make(map[string]int),
 		hooks:                newHookRunner(opts.Config),
 		runs:                 opts.Runs,
+		memory:               opts.Memory,
 	}
 }
 
@@ -267,6 +271,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	defer a.fireHook(context.WithoutCancel(ctx), hookInput{Event: hookStop, SessionID: call.SessionID})
 
 	history, files := a.preparePrompt(msgs, call.Attachments...)
+	memoryContext := a.relevantMemory(call.Prompt)
 
 	startTime := time.Now()
 	a.eventPromptSent(call.SessionID)
@@ -290,6 +295,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			}
 			verifyBatch.reset()
 			prepared.Messages = options.Messages
+			if memoryContext != "" {
+				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(memoryContext)}, prepared.Messages...)
+			}
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
 			}
@@ -704,13 +712,8 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		},
 	})
 	if err != nil {
-		isCancelErr := errors.Is(err, context.Canceled)
-		if isCancelErr {
-			// User canceled summarize we need to remove the summary message.
-			deleteErr := a.messages.Delete(ctx, summaryMessage.ID)
-			return deleteErr
-		}
-		return err
+		deleteErr := a.messages.Delete(context.WithoutCancel(ctx), summaryMessage.ID)
+		return errors.Join(err, deleteErr)
 	}
 
 	summaryMessage.AddFinish(message.FinishReasonEndTurn, "", "")
@@ -1253,7 +1256,9 @@ func (a *sessionAgent) workaroundProviderMediaLimitations(messages []fantasy.Mes
 // buildSummaryPrompt constructs the prompt text for session summarization.
 func buildSummaryPrompt(todos []session.Todo) string {
 	var sb strings.Builder
-	sb.WriteString("Provide a detailed summary of our conversation above.")
+	sb.WriteString(`Summarize the conversation so another coding agent can continue without asking the user to repeat context.
+
+Keep the user's goal and constraints, decisions and reasons, important file paths and identifiers, commands and results, unresolved issues, and exact next steps. Preserve explicit preferences and anything the user said must not change. Separate confirmed facts from guesses. Do not invent progress or claim unfinished work is complete. Keep useful technical detail and remove repeated discussion.`)
 	if len(todos) > 0 {
 		sb.WriteString("\n\n## Current Todo List\n\n")
 		for _, t := range todos {
@@ -1261,6 +1266,26 @@ func buildSummaryPrompt(todos []session.Todo) string {
 		}
 		sb.WriteString("\nInclude these tasks and their statuses in your summary. ")
 		sb.WriteString("Instruct the resuming assistant to use the `todos` tool to continue tracking progress on these tasks.")
+	}
+	return sb.String()
+}
+
+func (a *sessionAgent) relevantMemory(query string) string {
+	if a.memory == nil || strings.TrimSpace(query) == "" {
+		return ""
+	}
+	facts, err := a.memory.Search(query, 8)
+	if err != nil {
+		slog.Debug("Could not retrieve project memory", "error", err)
+		return ""
+	}
+	if len(facts) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("Relevant project memory. Treat these as saved notes, and check the current code when details may have changed.\n")
+	for _, fact := range facts {
+		fmt.Fprintf(&sb, "- %s: %s\n", fact.Key, fact.Value)
 	}
 	return sb.String()
 }
