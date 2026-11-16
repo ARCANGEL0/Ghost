@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose StatementBegin
 CREATE TABLE session_run_locks (
     session_id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
@@ -101,6 +102,7 @@ BEGIN
     WHERE id <= (SELECT COALESCE(MAX(id), 0) - 10000 FROM remote_events);
 END;
 
+-- +goose StatementEnd
 -- +goose Down
 DROP TRIGGER IF EXISTS record_message_deleted;
 DROP TRIGGER IF EXISTS record_message_updated;
