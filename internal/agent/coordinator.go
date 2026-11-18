@@ -907,7 +907,7 @@ func (c *coordinator) buildAutoFreeModel(ctx context.Context, isSubAgent bool) (
 			continue
 		}
 		for _, model := range providerCfg.Models {
-			if isFreeFallbackModel(providerID, model.ID) {
+			if isFreeFallbackModel(providerID, model) {
 				picks = append(picks, autoFreePick{providerID: providerID, provider: providerCfg, model: model})
 			}
 		}
@@ -952,7 +952,8 @@ func (c *coordinator) buildAutoFreeModel(ctx context.Context, isSubAgent bool) (
 	return &autoFreeModel{models: models}, nil
 }
 
-func isFreeFallbackModel(providerID, modelID string) bool {
+func isFreeFallbackModel(providerID string, model catwalk.Model) bool {
+	modelID := model.ID
 	switch providerID {
 	case "kilo":
 		return modelID == "kilo-auto/free" || strings.HasSuffix(modelID, ":free")
@@ -960,9 +961,11 @@ func isFreeFallbackModel(providerID, modelID string) bool {
 		return modelID != ""
 	case "openrouter":
 		return modelID == "openrouter/free" || strings.HasSuffix(modelID, ":free")
-	default:
+	}
+	if freeProviders.ProviderTier(providerID) != freeProviders.TierQuota {
 		return false
 	}
+	return model.CostPer1MIn == 0 && model.CostPer1MOut == 0
 }
 
 func freeProviderRank(providerID string) int {

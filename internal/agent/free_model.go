@@ -97,6 +97,10 @@ func (m *autoFreeModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.
 				errs = append(errs, fmt.Errorf("%s/%s: %w", model.Provider(), model.Model(), firstErr))
 				continue
 			}
+			if !started {
+				errs = append(errs, fmt.Errorf("%s/%s: provider returned no output", model.Provider(), model.Model()))
+				continue
+			}
 			for _, part := range pending {
 				if !yield(part) {
 					return
@@ -190,6 +194,10 @@ func (m *autoFreeModel) StreamObject(ctx context.Context, call fantasy.ObjectCal
 					return
 				}
 				errs = append(errs, fmt.Errorf("%s/%s: %w", model.Provider(), model.Model(), firstErr))
+				continue
+			}
+			if !started {
+				errs = append(errs, fmt.Errorf("%s/%s: provider returned no output", model.Provider(), model.Model()))
 				continue
 			}
 			for _, part := range pending {
