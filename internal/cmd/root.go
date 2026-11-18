@@ -38,6 +38,10 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Debug")
 	rootCmd.Flags().BoolP("help", "h", false, "Help")
 	rootCmd.Flags().BoolP("yolo", "y", false, "Automatically accept all permissions (dangerous mode)")
+	rootCmd.Flags().Bool("api", false, "Run the headless HTTP API instead of the terminal UI")
+	rootCmd.Flags().String("bind", "127.0.0.1", "IP address for the API listener when using --api")
+	rootCmd.Flags().Int("port", 49375, "Port for the API listener when using --api")
+	rootCmd.Flags().String("token", "", "Bearer token for the API when using --api")
 	rootCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
 	rootCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
 	rootCmd.MarkFlagsMutuallyExclusive("session", "continue")
@@ -63,6 +67,9 @@ var rootCmd = &cobra.Command{
 # Run in interactive mode
 Ghost
 
+# Run the headless API
+Ghost --api
+
 # Run non-interactively
 Ghost run "Guess my 5 favorite Pokémon"
 
@@ -85,6 +92,10 @@ Ghost --session {session-id}
 Ghost --continue
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		api, _ := cmd.Flags().GetBool("api")
+		if api {
+			return runServe(cmd)
+		}
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
 
