@@ -1248,7 +1248,9 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	}
 
 	apiKey, _ := c.cfg.Resolve(providerCfg.APIKey)
+	apiKey = strings.TrimSpace(apiKey)
 	baseURL, _ := c.cfg.Resolve(providerCfg.BaseURL)
+	baseURL = strings.TrimSpace(baseURL)
 
 	if providerCfg.Type == anthropic.Name && providerCfg.OAuthToken != nil {
 		headers["anthropic-beta"] = mergeBetas(headers["anthropic-beta"], claude.BetaHeader)
