@@ -57,8 +57,7 @@ func Render(s *styles.Styles, version string, compact bool, o Opts) string {
 // SmallRender renders a compact "Ghost" text logo with a gradient and
 // trailing diagonal characters that fill the given width.
 func SmallRender(t *styles.Styles, width int) string {
-	title := t.Base.Foreground(t.Secondary).Render("Ghost")
-	title = fmt.Sprintf("%s %s", title, styles.ApplyBoldForegroundGrad(t, "Ghost", t.Secondary, t.Primary))
+	title := styles.ApplyBoldForegroundGrad(t, "Ghost", t.Secondary, t.Primary)
 	remainingWidth := width - lipgloss.Width(title) - 1
 	if remainingWidth > 0 {
 		lines := strings.Repeat(diag, remainingWidth)
