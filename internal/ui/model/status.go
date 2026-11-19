@@ -110,9 +110,9 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle, currentSession *session.
 	ind := indStyle.String()
 	indWidth := lipgloss.Width(ind)
 	msg := strings.Join(strings.Split(s.msg.Msg, "\n"), " ")
-	msgWidth := lipgloss.Width(msg)
-	msg = ansi.Truncate(msg, area.Dx()-indWidth-msgWidth, "…")
-	padWidth := max(0, area.Dx()-indWidth-msgWidth)
+	msgWidth := max(0, area.Dx()-indWidth)
+	msg = ansi.Truncate(msg, msgWidth, "…")
+	padWidth := max(0, msgWidth-lipgloss.Width(msg))
 	msg += strings.Repeat(" ", padWidth)
 	info := msgStyle.Render(msg)
 

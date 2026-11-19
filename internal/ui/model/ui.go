@@ -918,11 +918,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.updateTextareaWithPrevHeight(msg, prevHeight))
 	case util.InfoMsg:
 		m.status.SetInfoMsg(msg)
-		ttl := msg.TTL
-		if ttl <= 0 {
-			ttl = DefaultStatusTTL
+		if !msg.Persistent {
+			ttl := msg.TTL
+			if ttl <= 0 {
+				ttl = DefaultStatusTTL
+			}
+			cmds = append(cmds, clearInfoMsgCmd(ttl))
 		}
-		cmds = append(cmds, clearInfoMsgCmd(ttl))
 	case util.ClearStatusMsg:
 		m.status.ClearInfoMsg()
 	case completions.CompletionItemsLoadedMsg:
@@ -4267,13 +4269,18 @@ func (m *UI) importExternalSession(source, reference string) tea.Cmd {
 	if m.isAgentBusy() {
 		return util.ReportWarn("Agent is working, please wait before importing a session")
 	}
-	return func() tea.Msg {
+	providerName := sessionimport.SourceName(source)
+	status := util.InfoMsg{
+		Type:       util.InfoTypeInfo,
+		Msg:        fmt.Sprintf("Importing %s session %s", providerName, reference),
+		Persistent: true,
+	}
+	return tea.Sequence(util.CmdHandler(status), func() tea.Msg {
 		ctx := context.Background()
 		result, err := sessionimport.Import(ctx, source, reference, m.com.Store().WorkingDir())
 		if err != nil {
 			return util.ReportError(err)()
 		}
-		providerName := sessionimport.SourceName(source)
 		name := providerName + ": " + result.Title
 		newSession, err := m.com.App.Sessions.Create(ctx, name)
 		if err != nil {
@@ -4303,7 +4310,7 @@ func (m *UI) importExternalSession(source, reference string) tea.Cmd {
 			}
 		}
 		return importedSessionMsg{sessionID: newSession.ID, count: len(result.Messages), provider: providerName}
-	}
+	})
 }
 
 // handleUndo implements the /undo command
