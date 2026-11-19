@@ -26,7 +26,6 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/fsext"
 	"github.com/swadhinbiswas/ghost/internal/home"
 	"github.com/swadhinbiswas/ghost/internal/log"
-	"github.com/swadhinbiswas/ghost/internal/oauth/claude"
 )
 
 const defaultCatwalkURL = "https://catwalk.charm.sh"
@@ -241,14 +240,9 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 		}
 
 		switch {
-		case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil:
-			// Claude Pro/Max subscription via Claude Code OAuth. The access
-			// token is sent as a bearer token with the OAuth beta header.
-			p.APIKey = config.OAuthToken.AccessToken
-			prepared.APIKey = config.OAuthToken.AccessToken
-			prepared.SystemPromptPrefix = strings.TrimSpace(
-				claude.SystemPromptPrefix() + "\n\n" + prepared.SystemPromptPrefix,
-			)
+		case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil && p.APIKey == "":
+			slog.Warn("Skipping Anthropic subscription token; select the Claude Code provider instead")
+			continue
 		case p.ID == catwalk.InferenceProviderCopilot && config.OAuthToken != nil:
 			prepared.SetupGitHubCopilot()
 		}
@@ -303,6 +297,8 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 		case "codex":
 			// Codex runs through the Codex CLI, which owns its own sign-in.
 			// Keep it in the model list even though Ghost stores no key.
+		case "claude-code":
+			// Claude Code runs through its ACP adapter and owns its own sign-in.
 		case "nvidia-nim":
 			// Nvidia NIM is shown in the model list even without an API key.
 			// If the user selects it without a key, the auth dialog will prompt.

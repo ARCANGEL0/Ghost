@@ -48,13 +48,13 @@ These providers can be used without entering an API key:
 | **OI VSCode Server** | Current community endpoint model | Community-hosted availability |
 | **Ollama** | Models installed on your machine | Local inference |
 | **Codex CLI** | GPT-6.1 Sol through the Codex app-server | Requires Codex CLI and account sign-in |
-| **Claude Pro/Max** | Claude models billed to a Claude subscription | Requires `ghost login claude` |
+| **Claude Code** | Claude Code tools and models through ACP | Requires Claude Code CLI and an active account |
 
 Import a Claude Code or Codex conversation into a new Ghost session with `/import --claude <session-id>` or `/import --codex <session-id>`. `/resume` accepts the same flags. See [session import](docs/session-import.md).
 
 Sign in to Codex with `ghost login codex`. Ghost uses the installed Codex CLI app-server for account-backed turns and resumes imported Codex threads when you continue with the Codex model.
 
-Claude Pro/Max subscriptions work through Anthropic's OAuth flow: run `ghost login claude`. If Claude Code is already signed in on this machine, Ghost imports that session automatically. The `anthropic` provider then uses the subscription instead of an API key. See [Claude OAuth](docs/claude-auth.md).
+Run `ghost login claude` to check the installed Claude Code CLI and its account. Ghost uses the Claude Code ACP adapter for the `claude-code` provider, while the `anthropic` provider continues to use API keys. See [Claude Code ACP](docs/claude-auth.md).
 
 Add a key to unlock more:
 

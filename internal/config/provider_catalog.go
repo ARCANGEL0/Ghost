@@ -165,12 +165,14 @@ func withEmbeddedProviders(known []catwalk.Provider) []catwalk.Provider {
 func ProviderAuthMethods(id string) []AuthMethod {
 	switch id {
 	case string(catwalk.InferenceProviderAnthropic):
-		return []AuthMethod{AuthOAuth, AuthAPIKey}
+		return []AuthMethod{AuthAPIKey}
 	case string(catwalk.InferenceProviderCopilot):
 		return []AuthMethod{AuthOAuth}
 	case "hyper":
 		return []AuthMethod{AuthOAuth}
 	case "codex":
+		return []AuthMethod{AuthCLI}
+	case "claude-code":
 		return []AuthMethod{AuthCLI}
 	case "auto-free", "ollama-local", "oi-vscode", "kilo":
 		return []AuthMethod{AuthNone}
@@ -183,6 +185,9 @@ func ProviderAuthMethods(id string) []AuthMethod {
 // over the embedded catalog because it carries Ghost specific models and
 // endpoints.
 func LookupProvider(id string) (catwalk.Provider, bool) {
+	if id == string(freeProviders.ClaudeCodeProvider.ID) {
+		return freeProviders.ClaudeCodeProvider, true
+	}
 	for _, p := range freeProviders.AllFreeProviders() {
 		if string(p.ID) == id {
 			return p, true

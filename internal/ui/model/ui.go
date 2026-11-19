@@ -34,6 +34,7 @@ import (
 	agenttools "github.com/swadhinbiswas/ghost/internal/agent/tools"
 	"github.com/swadhinbiswas/ghost/internal/agent/tools/mcp"
 	"github.com/swadhinbiswas/ghost/internal/app"
+	"github.com/swadhinbiswas/ghost/internal/claudecode"
 	"github.com/swadhinbiswas/ghost/internal/collab"
 	"github.com/swadhinbiswas/ghost/internal/commands"
 	"github.com/swadhinbiswas/ghost/internal/config"
@@ -3518,12 +3519,41 @@ func (m *UI) handleProviderAuth(provider catwalk.Provider, method config.AuthMet
 		}
 
 	case config.AuthCLI:
-		if string(provider.ID) == "codex" {
+		switch string(provider.ID) {
+		case "codex":
 			return m.loginCodex()
+		case "claude-code":
+			return m.loginClaudeCode(provider)
+		default:
+			return util.ReportWarn("CLI sign-in is not available for " + provider.Name)
 		}
-		return util.ReportWarn("CLI sign-in is not available for " + provider.Name)
 	}
 	return nil
+}
+
+func (m *UI) loginClaudeCode(provider catwalk.Provider) tea.Cmd {
+	if _, err := claudecode.Check(context.Background(), false); err == nil {
+		if err := m.com.Store().EnableProvider(config.ScopeGlobal, "claude-code"); err != nil {
+			return util.ReportError(err)
+		}
+		return m.providerConfigured(provider, config.AuthCLI)
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		return util.ReportError(fmt.Errorf("Claude Code CLI is required for sign-in: %w", err))
+	}
+	cmd := exec.Command("claude", "auth", "login")
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return util.ReportError(fmt.Errorf("Claude Code sign-in failed: %w", err))
+		}
+		if _, err := claudecode.Check(context.Background(), false); err != nil {
+			return util.ReportError(err)
+		}
+		if err := m.com.Store().EnableProvider(config.ScopeGlobal, "claude-code"); err != nil {
+			return util.ReportError(err)
+		}
+		return m.providerConfigured(provider, config.AuthCLI)()
+	})
 }
 
 // providerConfigured closes the provider dialogs and reports the result.

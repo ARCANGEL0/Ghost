@@ -129,6 +129,7 @@ var allowedProviders = map[string]bool{
 	"auto-free":    true,
 	"agentrouter":  true,
 	"codex":        true,
+	"claude-code":  true,
 	"codecraft":    true,
 	"nvidia-nim":   true,
 	"oi-vscode":    true,
@@ -203,6 +204,7 @@ func Providers(cfg *Config) ([]catwalk.Provider, error) {
 	var providerList []catwalk.Provider
 
 	providerList = append(providerList, freeProviders.AllFreeProviders()...)
+	providerList = append(providerList, freeProviders.ClaudeCodeProvider)
 	providerList = mergeProviders(providerList, fetchDynamicProviders())
 	if !providerAutoUpdateDisabled(cfg) {
 		providerList = mergeProviders(providerList, refreshProviderCatalogs(cfg))

@@ -34,7 +34,6 @@ import (
 	"github.com/swadhinbiswas/ghost/internal/lsp"
 	"github.com/swadhinbiswas/ghost/internal/memory"
 	"github.com/swadhinbiswas/ghost/internal/message"
-	"github.com/swadhinbiswas/ghost/internal/oauth/claude"
 	"github.com/swadhinbiswas/ghost/internal/oauth/copilot"
 	"github.com/swadhinbiswas/ghost/internal/permission"
 	"github.com/swadhinbiswas/ghost/internal/plugin"
@@ -616,15 +615,6 @@ func (c *coordinator) buildAgentAt(ctx context.Context, prompt *prompt.Prompt, a
 	}
 
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
-	// Anthropic subscription tokens only work when the request identifies as
-	// Claude Code. Configs created by older versions, or by the provider
-	// dialog, do not carry this prefix, so add it here as well.
-	if largeProviderCfg.OAuthToken != nil && largeProviderCfg.ID == string(catwalk.InferenceProviderAnthropic) &&
-		!strings.HasPrefix(largeProviderCfg.SystemPromptPrefix, claude.SystemPromptPrefix()) {
-		largeProviderCfg.SystemPromptPrefix = strings.TrimSpace(
-			claude.SystemPromptPrefix() + "\n\n" + largeProviderCfg.SystemPromptPrefix,
-		)
-	}
 	result := NewSessionAgent(SessionAgentOptions{
 		LargeModel:           large,
 		SmallModel:           small,
@@ -1225,6 +1215,13 @@ func (c *coordinator) isAnthropicThinking(model config.SelectedModel) bool {
 }
 
 func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model config.SelectedModel, isSubAgent bool) (fantasy.Provider, error) {
+	if providerCfg.ID == "claude-code" {
+		return claudeCodeProvider{
+			permissions: c.permissions,
+			sessions:    c.sessions,
+			workingDir:  c.cfg.WorkingDir(),
+		}, nil
+	}
 	if providerCfg.ID == "codex" {
 		return codexProvider{
 			permissions: c.permissions,
@@ -1251,13 +1248,6 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	apiKey = strings.TrimSpace(apiKey)
 	baseURL, _ := c.cfg.Resolve(providerCfg.BaseURL)
 	baseURL = strings.TrimSpace(baseURL)
-
-	if providerCfg.Type == anthropic.Name && providerCfg.OAuthToken != nil {
-		headers["anthropic-beta"] = mergeBetas(headers["anthropic-beta"], claude.BetaHeader)
-		if token := cmp.Or(apiKey, providerCfg.OAuthToken.AccessToken); token != "" {
-			apiKey = "Bearer " + strings.TrimPrefix(token, "Bearer ")
-		}
-	}
 
 	switch providerCfg.Type {
 	case openai.Name:

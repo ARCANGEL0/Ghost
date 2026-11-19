@@ -1,23 +1,21 @@
 package cmd
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
 	hyperp "github.com/swadhinbiswas/ghost/internal/agent/hyper"
+	"github.com/swadhinbiswas/ghost/internal/claudecode"
 	"github.com/swadhinbiswas/ghost/internal/config"
 	"github.com/swadhinbiswas/ghost/internal/oauth"
-	"github.com/swadhinbiswas/ghost/internal/oauth/claude"
 	"github.com/swadhinbiswas/ghost/internal/oauth/copilot"
 	"github.com/swadhinbiswas/ghost/internal/oauth/hyper"
 	"golang.org/x/term"
@@ -30,8 +28,7 @@ var loginCmd = &cobra.Command{
 	Long: `Login Ghost to a specified platform or save an API key for any AI provider.
 The platform or provider ID should be provided as an argument.
 Hyper and GitHub Copilot use OAuth sign-in. Codex uses its official CLI device
-flow. Claude reuses a Claude Code sign-in or runs Anthropic's OAuth flow, so a
-Pro/Max subscription can be used instead of an API key. Other providers
+flow. Claude Code uses the installed CLI and its own account. Other providers
 securely prompt for an API key and save it locally.`,
 	Example: `
 # Authenticate with Charm Hyper
@@ -43,7 +40,7 @@ Ghost login copilot
 # Sign in to Codex with a device code
 Ghost login codex
 
-# Sign in with a Claude Pro/Max subscription
+# Check the Claude Code account
 Ghost login claude
 
 # Save a gateway API key
@@ -95,7 +92,7 @@ Ghost login nvidia-nim
 		case "codex":
 			return loginCodex()
 		case "claude", "claude-code":
-			return loginClaude(app.Store())
+			return loginClaude()
 		default:
 			return loginAPIKey(app.Store(), provider)
 		}
@@ -117,66 +114,12 @@ func loginCodex() error {
 	return nil
 }
 
-func loginClaude(cfg *config.ConfigStore) error {
-	ctx := getLoginContext()
-
-	if token, ok := claude.TokenFromDisk(); ok {
-		if token.IsExpired() && token.RefreshToken != "" {
-			oldRefresh := token.RefreshToken
-			refreshed, err := claude.Refresh(ctx, oldRefresh)
-			if err != nil {
-				fmt.Println("Existing Claude Code sign-in could not be refreshed; starting a new sign-in.")
-			} else {
-				claude.UpdateDiskToken(oldRefresh, refreshed)
-				token = refreshed
-			}
-		}
-		if token.AccessToken != "" && !token.IsExpired() {
-			if err := cfg.SetProviderAPIKey(config.ScopeGlobal, "anthropic", token); err != nil {
-				return err
-			}
-			fmt.Println("Imported the existing Claude Code sign-in for the anthropic provider.")
-			return nil
-		}
-	}
-
-	pkce, err := claude.NewPKCE()
+func loginClaude() error {
+	status, err := claudecode.Check(getLoginContext(), true)
 	if err != nil {
 		return err
 	}
-	state, err := claude.NewState()
-	if err != nil {
-		return err
-	}
-	signInURL := claude.SignInURL(pkce, state)
-
-	fmt.Println("Open the following URL and sign in with your Claude Pro/Max account:")
-	fmt.Println()
-	fmt.Println(lipgloss.NewStyle().Hyperlink(signInURL, "id=claude").Render(signInURL))
-	fmt.Println()
-	fmt.Println("Claude will show an authorization code. Paste it here (format: code#state):")
-
-	_ = browser.OpenURL(signInURL)
-
-	line, readErr := bufio.NewReader(os.Stdin).ReadString('\n')
-	if readErr != nil && line == "" {
-		return fmt.Errorf("failed to read authorization code: %w", readErr)
-	}
-	code := strings.TrimSpace(line)
-	if code == "" {
-		return fmt.Errorf("authorization code cannot be empty")
-	}
-
-	token, err := claude.Exchange(ctx, code, pkce.Verifier)
-	if err != nil {
-		return err
-	}
-	if err := cfg.SetProviderAPIKey(config.ScopeGlobal, "anthropic", token); err != nil {
-		return err
-	}
-
-	fmt.Println()
-	fmt.Println("You're now authenticated with Claude (Pro/Max subscription).")
+	fmt.Printf("Claude Code account is ready (%s subscription).\n", status.Subscription)
 	return nil
 }
 

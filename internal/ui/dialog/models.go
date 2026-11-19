@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/swadhinbiswas/ghost/internal/claudecode"
 	"github.com/swadhinbiswas/ghost/internal/config"
 	"github.com/swadhinbiswas/ghost/internal/ui/common"
 	"github.com/swadhinbiswas/ghost/internal/ui/util"
@@ -80,9 +81,10 @@ type Models struct {
 	com          *common.Common
 	isOnboarding bool
 
-	modelType  ModelType
-	providers  []catwalk.Provider
-	codexReady *bool
+	modelType   ModelType
+	providers   []catwalk.Provider
+	codexReady  *bool
+	claudeReady *bool
 
 	keyMap struct {
 		Tab       key.Binding
@@ -378,7 +380,14 @@ func (m *Models) hasProviderAccess(id string) bool {
 		return true
 	}
 	if slices.Contains(methods, config.AuthCLI) {
-		return m.codexIsSignedIn()
+		switch id {
+		case "codex":
+			return m.codexIsSignedIn()
+		case "claude-code":
+			return m.claudeIsSignedIn()
+		default:
+			return false
+		}
 	}
 	if provider.OAuthToken != nil {
 		return true
@@ -394,6 +403,19 @@ func (m *Models) hasProviderAccess(id string) bool {
 		return provider.BaseURL != "" && len(provider.Models) > 0
 	}
 	return false
+}
+
+func (m *Models) claudeIsSignedIn() bool {
+	if m.claudeReady != nil {
+		return *m.claudeReady
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := claudecode.Check(ctx, false)
+	ready := err == nil
+	m.claudeReady = &ready
+	return ready
 }
 
 func (m *Models) codexIsSignedIn() bool {

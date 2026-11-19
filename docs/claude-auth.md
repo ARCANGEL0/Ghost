@@ -1,55 +1,39 @@
-# Claude OAuth
+# Claude Code ACP
 
-Ghost can use a Claude Pro/Max subscription instead of an Anthropic API key.
-Authentication happens through Claude Code's public OAuth client, and requests
-are billed to the subscription.
+Ghost runs the installed Claude Code CLI through the
+[`claude-agent-acp`](https://github.com/agentclientprotocol/claude-agent-acp)
+adapter. Claude Code handles the account, model access, and billing.
 
-## Sign in
+## Check the account
 
 ```text
 ghost login claude
 ```
 
-Ghost first looks for an existing Claude Code sign-in:
-
-- `~/.claude/.credentials.json` (honors `CLAUDE_CONFIG_DIR`)
-- the macOS keychain entry `Claude Code-credentials`
-
-If one is found, Ghost imports it and exits. Otherwise it opens the Claude
-authorization page, asks for the code Claude displays, and stores the returned
-token under `providers.anthropic` in the global config.
-
-The pasted code has the form `code#state`; both halves are required.
-
-## How requests are sent
-
-When `providers.anthropic` carries an OAuth token, Ghost sends:
+This checks that Claude Code is installed, signed in to a first-party account,
+and can complete a short Haiku request. It uses a small amount of the account's
+usage. If Claude Code needs sign-in, run:
 
 ```text
-Authorization: Bearer <access-token>
-anthropic-beta: oauth-2025-04-20
+claude auth login
 ```
 
-It also prepends the Claude Code identity line to the system prompt, which the
-subscription endpoint expects. The API key path is untouched, so `x-api-key`
-providers keep working.
+## Use Claude Code in Ghost
 
-## Refresh
+Choose **Claude Code** in the provider list, then select **Claude Code (account
+default)**. Ghost checks the CLI login before starting a run. Each Ghost session
+uses the matching Claude Code ACP session when it is available.
 
-Access tokens are short-lived. Ghost refreshes them automatically before a run
-when the token is near expiry, and retries once after a `401`. Anthropic rotates
-the refresh token, and Ghost persists the rotated value.
+If `claude-agent-acp` is not installed, Ghost launches the pinned package with
+`npx`. This requires Node.js 22 or newer and downloads the adapter the first
+time it is used. Ghost points the adapter at the installed `claude` executable
+and removes API-key environment variables from the adapter process.
 
-If the token came from a Claude Code credentials file, Ghost writes the rotated
-token back to that file, so the Claude Code CLI stays signed in. Ghost only
-writes when the file still holds the refresh token it started from, so a newer
-Claude Code sign-in is never overwritten.
+## Anthropic API keys
 
-## Going back to an API key
+For direct Anthropic API access, configure the **Anthropic** provider with an
+API key. Old subscription tokens stored under that provider are no longer used:
+select **Claude Code** to use the local CLI account.
 
-```text
-ghost login anthropic
-```
-
-Saving an API key clears the stored OAuth token for the provider. The next run
-uses `x-api-key` again.
+If a request fails after the login check, Claude Code returns the account or
+service error. A successful login check cannot guarantee remaining quota.

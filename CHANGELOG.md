@@ -8,9 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `ghost login claude` for Claude Pro/Max subscriptions. Ghost imports an
-  existing Claude Code sign-in when present, otherwise runs Anthropic's OAuth
-  flow, and refreshes the subscription token automatically.
+- Claude Code as an ACP-backed provider using the installed CLI and its account.
+- `ghost login claude` to check the Claude Code installation and account access.
 - `/import --claude <session-id>` and `/import --codex <session-id>` to bring coding-agent transcripts into a new Ghost session.
 - `ghost login codex` to sign in through the Codex CLI device-code flow.
 - A Codex CLI model backed by app-server, including native thread resume and Ghost permission prompts.
