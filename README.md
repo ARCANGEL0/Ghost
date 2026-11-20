@@ -71,7 +71,7 @@ See [Free model providers](docs/free-model-providers.md) for setup steps, curren
 Detects your OS/architecture and installs the latest release to `/usr/local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/swadhinbiswas/Ghost/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ARCANGEL0/ghost/main/install.sh | bash
 ```
 
 ### Manual download (Windows, macOS, Linux)
