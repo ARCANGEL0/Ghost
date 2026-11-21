@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	githubApiUrl = "https://api.github.com/repos/swadhinbiswas/Ghost/releases/latest"
+	githubApiUrl = "https://api.github.com/repos/ARCANGEL0/ghost/releases/latest"
 	userAgent    = "ghost/1.0"
 )
 

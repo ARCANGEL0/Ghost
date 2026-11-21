@@ -74,9 +74,12 @@ Detects your OS/architecture and installs the latest release to `/usr/local/bin`
 curl -fsSL https://raw.githubusercontent.com/ARCANGEL0/ghost/main/install.sh | bash
 ```
 
+To update an existing install from this fork, run `./updater.sh`. The original
+maintainer's release stream remains available through `./updater-original.sh`.
+
 ### Manual download (Windows, macOS, Linux)
 
-1. Go to the [Releases page](https://github.com/swadhinbiswas/Ghost/releases).
+1. Go to the [Releases page](https://github.com/ARCANGEL0/ghost/releases).
 2. Download the archive for your system (`.tar.gz` for macOS/Linux, `.zip` for Windows).
 3. Extract it and move the `ghost` binary somewhere on your `PATH`.
 
@@ -85,7 +88,7 @@ curl -fsSL https://raw.githubusercontent.com/ARCANGEL0/ghost/main/install.sh | b
 Requires **Go 1.26 or newer**:
 
 ```bash
-git clone https://github.com/swadhinbiswas/Ghost.git
+git clone https://github.com/ARCANGEL0/Ghost.git
 cd Ghost
 go build -o ghost ./main.go
 sudo mv ghost /usr/local/bin/
