@@ -409,8 +409,11 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 
 // Init initializes the UI model.
 func (m *UI) Init() tea.Cmd {
-	// It will naturally start ticking because of the tickLanding call in common commands if we need.
+	// Animate the landing mark while the landing view is open.
 	var cmds []tea.Cmd
+	if m.state == uiLanding {
+		cmds = append(cmds, m.tickLanding())
+	}
 	if m.state == uiOnboarding {
 		if cmd := m.openModelsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -902,6 +905,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.renderPills()
 				cmds = append(cmds, cmd)
 			}
+		}
+	case tickLandingMsg:
+		if m.state == uiLanding {
+			m.landingFrame++
+			cmds = append(cmds, m.tickLanding())
 		}
 
 	case tea.KeyPressMsg:
@@ -1596,7 +1604,6 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if isOnboarding {
 			m.setState(uiLanding, uiFocusEditor)
 			m.landingFrame = 0
-			cmds = append(cmds, m.tickLanding())
 			cmds = append(cmds, m.tickLanding())
 			m.com.Config().SetupAgents()
 			if err := m.com.App.InitCoderAgent(context.TODO()); err != nil {
@@ -3755,6 +3762,7 @@ func (m *UI) newSession() tea.Cmd {
 	m.historyReset()
 	agenttools.ResetCache()
 	return tea.Batch(
+		m.tickLanding(),
 		func() tea.Msg {
 			m.com.App.LSPManager.StopAll(context.Background())
 			return nil

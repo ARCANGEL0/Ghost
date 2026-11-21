@@ -1,12 +1,13 @@
 package model
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/swadhinbiswas/ghost/internal/agent"
 	"github.com/swadhinbiswas/ghost/internal/ui/common"
 	"github.com/swadhinbiswas/ghost/internal/ui/logo"
-	"time"
 )
 
 // selectedLargeModel returns the currently selected large language model from
@@ -28,7 +29,7 @@ func (m *UI) landingView() string {
 
 	cwd := common.PrettyPath(t, m.com.Store().WorkingDir(), width)
 
-	title := logo.RenderAnimated(t, "", false, logo.Opts{}, m.landingFrame)
+	title := logo.RenderAnimated(t, "", false, logo.Opts{Width: width}, m.landingFrame)
 
 	infoSection := lipgloss.JoinVertical(lipgloss.Center,
 		title,

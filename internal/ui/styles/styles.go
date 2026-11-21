@@ -1288,7 +1288,7 @@ func DefaultStyles(themeName string) Styles {
 	s.Dialog.Help.FullDesc = base.Foreground(fgSubtle)
 	s.Dialog.Help.FullSeparator = base.Foreground(border)
 	s.Dialog.NormalItem = base.Padding(0, 1).Foreground(fgBase)
-	s.Dialog.SelectedItem = base.Padding(0, 1).Background(primary).Foreground(fgBase)
+	s.Dialog.SelectedItem = base.Padding(0, 1).Background(primary).Foreground(bgBase).Bold(true)
 	s.Dialog.InputPrompt = base.Margin(1, 1)
 
 	s.Dialog.List = base.Margin(0, 0, 1, 0)

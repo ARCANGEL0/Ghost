@@ -71,8 +71,9 @@ func (m *UI) initializeProject() tea.Cmd {
 func (m *UI) skipInitializeProject() tea.Cmd {
 	// TODO: initialize the project
 	m.setState(uiLanding, uiFocusEditor)
+	m.landingFrame = 0
 	// mark the project as initialized
-	return m.markProjectInitialized
+	return tea.Batch(m.markProjectInitialized, m.tickLanding())
 }
 
 // initializeView renders the project initialization prompt with Yes/No buttons.

@@ -132,7 +132,11 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, width
 	if len(info) > 0 {
 		infoText = fmt.Sprintf(" %s ", info)
 		if focused {
-			infoText = t.InfoTextFocused.Render(infoText)
+			infoStyle := t.InfoTextFocused
+			if foreground := t.ItemFocused.GetForeground(); foreground != nil {
+				infoStyle = infoStyle.Foreground(foreground).Bold(true)
+			}
+			infoText = infoStyle.Render(infoText)
 		} else {
 			infoText = t.InfoTextBlurred.Render(infoText)
 		}
